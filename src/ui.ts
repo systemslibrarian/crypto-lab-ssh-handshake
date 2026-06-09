@@ -1031,7 +1031,7 @@ async function scenarioMitmAfter(state: AppState, output: HTMLElement): Promise<
 	const attacker = await makeMitm(HOST_NAME);
 	const tap = tapResponder(HOST_NAME, attacker, algoNames());
 	const result = await state.client.connect(HOST_NAME, tap);
-	output.innerHTML = renderScenarioResult(result, 'Attack · MITM after pinning', attacker.identity)
+	output.innerHTML = renderScenarioResult(result, 'Attack · MITM after pinning', attacker.identity, 'mitm-after')
 		+ renderTranscript(tap.transcript, result);
 	state.logScenario(
 		result.hostKeyDecision === 'CHANGED-REJECTED'
@@ -1047,7 +1047,7 @@ async function scenarioMitmFirst(state: AppState, output: HTMLElement): Promise<
 	const attacker = await makeMitm(HOST_NAME);
 	const tap = tapResponder(HOST_NAME, attacker, algoNames());
 	const result = await freshClient.connect(HOST_NAME, tap);
-	output.innerHTML = renderScenarioResult(result, 'Attack · MITM on first contact (fresh client)', attacker.identity)
+	output.innerHTML = renderScenarioResult(result, 'Attack · MITM on first contact (fresh client)', attacker.identity, 'mitm-first')
 		+ renderTranscript(tap.transcript, result);
 	state.logScenario(
 		result.connected
@@ -1073,7 +1073,7 @@ async function scenarioTamper(state: AppState, output: HTMLElement): Promise<voi
 	};
 	const tap = tapResponder(HOST_NAME, tampered, algoNames());
 	const result = await state.client.connect(HOST_NAME, tap);
-	output.innerHTML = renderScenarioResult(result, 'Attack · Tampered host signature', null)
+	output.innerHTML = renderScenarioResult(result, 'Attack · Tampered host signature', null, 'tamper')
 		+ renderTranscript(tap.transcript, result);
 	state.logScenario(
 		!result.signatureValid
@@ -1115,7 +1115,7 @@ async function scenarioDnsSpoof(state: AppState, output: HTMLElement): Promise<v
 	} else {
 		summary = policyResult.result;
 	}
-	output.innerHTML = renderScenarioResult(summary, 'Attack · DNS spoof of SSHFP without DNSSEC', attacker.identity)
+	output.innerHTML = renderScenarioResult(summary, 'Attack · DNS spoof of SSHFP without DNSSEC', attacker.identity, 'dns-spoof')
 		+ `<div class="ssh-warning ssh-warning--bad" role="alert">
 			<p class="ssh-warning-title">The lesson</p>
 			<p class="ssh-warning-body">
@@ -1165,7 +1165,7 @@ async function scenarioRotateUnderCa(state: AppState, output: HTMLElement): Prom
 			},
 		],
 	};
-	output.innerHTML = renderScenarioResult(result, 'Operations · Rotate host under same CA (no warning)', state.server.publicIdentity())
+	output.innerHTML = renderScenarioResult(result, 'Operations · Rotate host under same CA (no warning)', state.server.publicIdentity(), 'rotate-ca')
 		+ `<div class="ssh-warning ssh-warning--pending recovery-card" role="status">
 			<p class="ssh-warning-title">Why no warning?</p>
 			<p class="ssh-warning-body">The client never pinned the host key directly. It pinned the CA. As long as a new CA-signed cert names this host and binds the new pubkey, the rotation is invisible to users — exactly how OpenSSH host certificates avoid the recurring TOFU pain in fleets.</p>
@@ -1213,7 +1213,7 @@ async function scenarioRogueCa(state: AppState, output: HTMLElement): Promise<vo
 			},
 		],
 	};
-	output.innerHTML = renderScenarioResult(result, 'Attack · Rogue CA signs the attacker\'s host', attacker.identity)
+	output.innerHTML = renderScenarioResult(result, 'Attack · Rogue CA signs the attacker\'s host', attacker.identity, 'rogue-ca')
 		+ renderTranscript(tap.transcript, result);
 	state.logScenario(
 		'Rogue CA: a different CA signed the attacker\'s host. The cert is well-formed but the client\'s @cert-authority list does not include the rogue CA — rejected.',
@@ -1235,6 +1235,7 @@ async function scenarioRotatePlanned(state: AppState, output: HTMLElement): Prom
 		state.server.publicIdentity(),
 		tap.transcript,
 		`Planned rotation: the operator reinstalled the host. The warning is identical to a MITM — the difference is the operator told you in advance (and you can verify the new fingerprint out of band). Use <code>ssh-keygen -R ${HOST_NAME}</code> in section 2 to drop the stale pin, then reconnect.`,
+		'rotate-planned',
 	);
 	state.logScenario(
 		'Planned rotation: the SAME "host key changed" warning fires. Recovery is ssh-keygen -R + reconnect after operator verifies new fingerprint.',
@@ -1257,6 +1258,7 @@ async function scenarioRotateEmergency(state: AppState, output: HTMLElement): Pr
 		state.server.publicIdentity(),
 		tap.transcript,
 		`Emergency rotation: the host private key was potentially exposed and was regenerated. Same warning — operator must distribute the new fingerprint through a channel the attacker cannot influence, then users drop the old pin and reconnect.`,
+		'rotate-emergency',
 	);
 	state.logScenario(
 		'Emergency rotation: TOFU treats compromise response the same way as attack. The recovery flow is the channel security work, not anything in the protocol.',
@@ -1271,8 +1273,9 @@ function renderRecoverableScenario(
 	identity: HostPublic,
 	transcript: Transcript,
 	guidance: string,
+	scenarioId?: string,
 ): string {
-	return renderScenarioResult(result, label, identity)
+	return renderScenarioResult(result, label, identity, scenarioId)
 		+ `<div class="ssh-warning ssh-warning--pending recovery-card" role="status">
 			<p class="ssh-warning-title">Recovery — what to do next</p>
 			<p class="ssh-warning-body">${guidance}</p>
@@ -1280,7 +1283,12 @@ function renderRecoverableScenario(
 		+ renderTranscript(transcript, result);
 }
 
-function renderScenarioResult(result: ConnectResult, label: string, attacker: HostPublic | null): string {
+function renderScenarioResult(
+	result: ConnectResult,
+	label: string,
+	attacker: HostPublic | null,
+	scenarioId?: string,
+): string {
 	const stepLis = result.steps
 		.map((step) => {
 			const cls = step.ok ? 'scenario-status--valid' : 'scenario-status--invalid';
@@ -1300,6 +1308,9 @@ function renderScenarioResult(result: ConnectResult, label: string, attacker: Ho
 		? `<p class="handshake-attacker"><span class="fp-tag">Presented key</span><code>${attacker.fingerprint}</code></p>`
 		: '';
 	const summary = scenarioMarkdownSummary(result, label, attacker);
+	const shareBtn = scenarioId
+		? `<button class="tab-button share-scenario" type="button" data-scenario-id="${scenarioId}">Copy share link</button>`
+		: '';
 	return `
 		<div class="handshake-card">
 			<div class="handshake-card-head">
@@ -1312,6 +1323,7 @@ function renderScenarioResult(result: ConnectResult, label: string, attacker: Ho
 			<p class="handshake-summary">${result.summary}</p>
 			<div class="transcript-actions">
 				<button class="tab-button transcript-copy" type="button" data-json='${encodeForAttr(summary)}'>Copy summary as Markdown</button>
+				${shareBtn}
 				<span class="transcript-copy-msg" aria-live="polite"></span>
 			</div>
 		</div>
@@ -1586,17 +1598,28 @@ export function mountApp(root: HTMLDivElement): void {
 		btn?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 	})();
 
-	// Delegated handler for transcript "Copy as JSON" buttons.
+	// Delegated handler for "Copy …" buttons inside transcript / scenario cards.
 	shell.addEventListener('click', (e) => {
-		const btn = (e.target as HTMLElement).closest<HTMLButtonElement>('.transcript-copy');
+		const target = e.target as HTMLElement;
+		const copyBtn = target.closest<HTMLButtonElement>('.transcript-copy');
+		const shareBtn = target.closest<HTMLButtonElement>('.share-scenario');
+		const btn = copyBtn ?? shareBtn;
 		if (!btn) return;
-		const json = btn.dataset.json ?? '';
+		const payload = copyBtn
+			? (copyBtn.dataset.json ?? '')
+			: (() => {
+				const id = shareBtn!.dataset.scenarioId ?? '';
+				const url = new URL(location.href);
+				url.search = '';
+				url.searchParams.set('scenario', id);
+				return url.toString();
+			})();
 		const msg = btn.parentElement?.querySelector<HTMLElement>('.transcript-copy-msg');
-		void navigator.clipboard.writeText(json).then(
+		void navigator.clipboard.writeText(payload).then(
 			() => {
 				if (msg) {
-					msg.textContent = 'Copied.';
-					setTimeout(() => { if (msg.textContent === 'Copied.') msg.textContent = ''; }, 2000);
+					msg.textContent = copyBtn ? 'Copied.' : 'Share link copied.';
+					setTimeout(() => { if (msg.textContent?.endsWith('opied.')) msg.textContent = ''; }, 2000);
 				}
 			},
 			() => {

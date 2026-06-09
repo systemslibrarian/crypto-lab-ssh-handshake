@@ -128,6 +128,18 @@ test.describe('transcript + summary copy', () => {
 		await expect(page.locator('.transcript-inspector .transcript-copy-msg')).toContainText('Copied');
 	});
 
+	test('share link button puts a ?scenario=... URL on the clipboard', async ({ page, context }) => {
+		await context.grantPermissions(['clipboard-read', 'clipboard-write']);
+		await startServer(page);
+		await page.click('.mode-pill[data-mode="accept-new"]');
+		await page.click('#connect-btn');
+		await page.click('#scn-mitm-after');
+		const shareBtn = page.locator('#scenario-output .share-scenario').first();
+		await shareBtn.click();
+		const text = await page.evaluate(() => navigator.clipboard.readText());
+		expect(text).toContain('?scenario=mitm-after');
+	});
+
 	test('scenario summary copy puts Markdown on the clipboard', async ({ page, context }) => {
 		await context.grantPermissions(['clipboard-read', 'clipboard-write']);
 		await startServer(page);
