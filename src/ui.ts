@@ -278,7 +278,8 @@ function renderConnectSection(state: AppState): HTMLElement {
 		<div class="ssh-actions">
 			<button id="connect-btn" class="tab-button" type="button">ssh ${HOST_NAME}</button>
 			<button id="forget-btn" class="tab-button" type="button">ssh-keygen -R ${HOST_NAME}</button>
-			<button id="reset-btn" class="tab-button" type="button">Reset known_hosts</button>
+			<button id="reset-btn" class="tab-button" type="button">Reset known_hosts only</button>
+			<button id="reset-all-btn" class="tab-button" type="button">Reset everything</button>
 			<span id="connect-status" class="ssh-status" aria-live="polite"></span>
 		</div>
 		<div id="connect-pending" class="ssh-output" aria-live="polite"></div>
@@ -289,6 +290,7 @@ function renderConnectSection(state: AppState): HTMLElement {
 	const connectBtn = section.querySelector<HTMLButtonElement>('#connect-btn')!;
 	const forgetBtn = section.querySelector<HTMLButtonElement>('#forget-btn')!;
 	const resetBtn = section.querySelector<HTMLButtonElement>('#reset-btn')!;
+	const resetAllBtn = section.querySelector<HTMLButtonElement>('#reset-all-btn')!;
 	const status = section.querySelector<HTMLElement>('#connect-status')!;
 	const modeControls = section.querySelector<HTMLElement>('#mode-controls')!;
 	const modeHelp = section.querySelector<HTMLElement>('#mode-help')!;
@@ -552,6 +554,24 @@ function renderConnectSection(state: AppState): HTMLElement {
 		state.pending = null;
 		state.pendingLabel = '';
 		status.textContent = 'known_hosts cleared. The next connection will be first contact again.';
+		state.rerenderConnect();
+		state.rerenderScenarios();
+	});
+
+	resetAllBtn.addEventListener('click', () => {
+		state.client = new SshClient();
+		state.server = null;
+		state.ca = null;
+		state.caTrusted = false;
+		state.currentCert = null;
+		clearSshfp();
+		state.lastResult = null;
+		state.lastTranscript = null;
+		state.pending = null;
+		state.pendingLabel = '';
+		state.mode = 'ask';
+		status.textContent = 'Reset complete. Server stopped, CA forgotten, SSHFP cleared, known_hosts emptied.';
+		state.rerenderSetup();
 		state.rerenderConnect();
 		state.rerenderScenarios();
 	});
@@ -1215,6 +1235,7 @@ function renderScenarioResult(result: ConnectResult, label: string, attacker: Ho
 	const attackerLine = attacker
 		? `<p class="handshake-attacker"><span class="fp-tag">Presented key</span><code>${attacker.fingerprint}</code></p>`
 		: '';
+	const summary = scenarioMarkdownSummary(result, label, attacker);
 	return `
 		<div class="handshake-card">
 			<div class="handshake-card-head">
@@ -1225,8 +1246,33 @@ function renderScenarioResult(result: ConnectResult, label: string, attacker: Ho
 			<ol class="handshake-step-list">${stepLis}</ol>
 			${decisionBanner(result)}
 			<p class="handshake-summary">${result.summary}</p>
+			<div class="transcript-actions">
+				<button class="tab-button transcript-copy" type="button" data-json='${encodeForAttr(summary)}'>Copy summary as Markdown</button>
+				<span class="transcript-copy-msg" aria-live="polite"></span>
+			</div>
 		</div>
 	`;
+}
+
+function scenarioMarkdownSummary(result: ConnectResult, label: string, attacker: HostPublic | null): string {
+	const lines = [
+		`# ${label}`,
+		'',
+		`- decision: \`${result.hostKeyDecision}\``,
+		`- connected: ${result.connected}`,
+		`- signature valid: ${result.signatureValid}`,
+		`- shared agrees: ${result.sharedAgrees}`,
+	];
+	if (attacker) lines.push(`- presented host fingerprint: \`${attacker.fingerprint}\``);
+	lines.push('');
+	lines.push('## Handshake steps');
+	for (const s of result.steps) {
+		lines.push(`- [${s.ok ? 'OK' : 'FAIL'}] **${s.label}** — ${s.detail}`);
+	}
+	lines.push('');
+	lines.push(`## Summary`);
+	lines.push(result.summary);
+	return lines.join('\n');
 }
 
 // ---------- 5. Three trust models / concepts --------------------------------
@@ -1271,6 +1317,24 @@ function renderConceptsSection(): HTMLElement {
 				</thead>
 				<tbody>${compareRows}</tbody>
 			</table>
+		</div>
+		<h3 class="ssh-section-h">First contact: the same event in all three demos</h3>
+		<div class="reuse-grid trust-callouts">
+			<div class="panel-card trust-callout trust-callout--pki">
+				<h3>PKI / TLS</h3>
+				<p class="panel-copy">"Is this <em>certificate</em> signed by a CA I already trust, and does the name match?" The browser walks the chain to a pre-installed root. First contact is invisible because trust was delegated to the OS vendor ahead of time.</p>
+				<p class="panel-copy"><a href="https://systemslibrarian.github.io/crypto-lab-pki-chain/">Open crypto-lab-pki-chain →</a></p>
+			</div>
+			<div class="panel-card trust-callout trust-callout--wot">
+				<h3>Web of Trust / PGP</h3>
+				<p class="panel-copy">"Has anyone I trust signed this key? If marginals add up, accept it." Trust flows through people, not authorities. First contact is invisible only if a chain through your social graph already exists.</p>
+				<p class="panel-copy"><a href="https://systemslibrarian.github.io/crypto-lab-web-of-trust/">Open crypto-lab-web-of-trust →</a></p>
+			</div>
+			<div class="panel-card trust-callout trust-callout--ssh">
+				<h3>SSH / TOFU (this demo)</h3>
+				<p class="panel-copy">"Have I seen this host's key before? If not, ask the user." There is no third party. First contact is loud, unverified, and entirely on you — unless an SSHFP record or an @cert-authority cert closes the gap.</p>
+				<p class="panel-copy"><strong>You are here.</strong></p>
+			</div>
 		</div>
 		<h3 class="ssh-section-h">Inside the SSH handshake</h3>
 		<div class="reuse-grid">${concepts}</div>
@@ -1411,6 +1475,32 @@ export function mountApp(root: HTMLDivElement): void {
 	shell.appendChild(renderRealWorldSection());
 	shell.appendChild(renderScopeSection());
 	shell.appendChild(renderFooter());
+
+	// Deep-link: ?scenario=<id> auto-triggers a scenario after the page mounts.
+	// Server is auto-started so the linked scenario can actually run.
+	void (async () => {
+		const params = new URLSearchParams(location.search);
+		const scn = params.get('scenario');
+		if (!scn) return;
+		if (!state.server) {
+			state.server = await SshServer.create(HOST_NAME);
+			state.rerenderSetup();
+			state.rerenderConnect();
+			state.rerenderScenarios();
+		}
+		// If the scenario needs a pin, run an explicit accept-new connect first
+		// so the demo lands in a runnable state.
+		if (['mitm-after', 'rotate-planned', 'rotate-emergency'].includes(scn)) {
+			const tap = tapResponder(HOST_NAME, state.server!, algoNames());
+			await connectWithPolicy(state.client, HOST_NAME, tap, 'accept-new');
+			state.rerenderConnect();
+			state.rerenderScenarios();
+		}
+		const btnId = `scn-${scn}`;
+		const btn = shell.querySelector<HTMLButtonElement>(`#${btnId}`);
+		btn?.click();
+		btn?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+	})();
 
 	// Delegated handler for transcript "Copy as JSON" buttons.
 	shell.addEventListener('click', (e) => {

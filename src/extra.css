@@ -373,6 +373,37 @@
   font-size: 0.92rem;
 }
 
+/* Three-demos first-contact callouts */
+.trust-callouts {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.trust-callout {
+  border-top: 4px solid var(--line);
+}
+
+.trust-callout--pki {
+  border-top-color: var(--accent);
+}
+
+.trust-callout--wot {
+  border-top-color: var(--accent-3);
+}
+
+.trust-callout--ssh {
+  border-top-color: var(--accent-4);
+}
+
+.trust-callout h3 {
+  color: var(--ink-strong);
+}
+
+@media (max-width: 900px) {
+  .trust-callouts {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* SSH-style warning banners */
 .ssh-warning {
   padding: 14px 16px;
