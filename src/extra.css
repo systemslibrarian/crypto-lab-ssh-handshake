@@ -408,6 +408,184 @@ code {
   }
 }
 
+/* StrictHostKeyChecking mode selector */
+.ssh-mode {
+  margin: 22px 0 0;
+  padding: 14px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-strong);
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+}
+
+.ssh-mode-legend {
+  padding: 0 8px;
+  color: var(--ink-strong);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.ssh-mode-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.ssh-mode-help {
+  margin: 0;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  line-height: 1.55;
+}
+
+.mode-pill {
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 10px 16px;
+  min-height: 44px;
+  background: transparent;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  letter-spacing: 0.04em;
+  cursor: pointer;
+  transition: background 180ms ease, color 180ms ease, border-color 180ms ease;
+}
+
+.mode-pill:hover {
+  color: var(--ink-strong);
+}
+
+.mode-pill:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
+.mode-pill.is-active {
+  background: var(--mono-block-bg);
+  color: var(--mono-block-fg);
+  border-color: transparent;
+}
+
+/* Pending first-contact decision panel */
+.pending-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+.pending-actions .tab-button {
+  font-size: 0.88rem;
+}
+
+.recovery-card {
+  margin-top: 14px;
+}
+
+/* Transcript inspector */
+.transcript-inspector {
+  margin-top: 12px;
+  padding: 12px 16px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-strong);
+}
+
+.transcript-inspector > summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--ink-strong);
+  list-style: none;
+  padding: 4px 0;
+}
+
+.transcript-inspector > summary::-webkit-details-marker {
+  display: none;
+}
+
+.transcript-inspector > summary::before {
+  content: '▸ ';
+  color: var(--accent);
+}
+
+.transcript-inspector[open] > summary::before {
+  content: '▾ ';
+}
+
+.transcript-grid {
+  margin-top: 12px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 6px;
+}
+
+.transcript-row {
+  display: grid;
+  grid-template-columns: minmax(160px, 220px) minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 10px;
+  border-radius: 12px;
+  background: var(--panel);
+  border: 1px solid var(--line);
+  min-width: 0;
+}
+
+.transcript-row code {
+  font-family: var(--mono);
+  font-size: 0.84rem;
+  background: transparent;
+  color: var(--ink-strong);
+  padding: 0;
+  word-break: break-all;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.transcript-row--changed {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
+.transcript-row--changed .t-label,
+.transcript-row--changed code {
+  color: var(--warning-fg);
+}
+
+.t-label {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  text-transform: uppercase;
+}
+
+.transcript-actions {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.transcript-copy-msg {
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.84rem;
+}
+
+@media (max-width: 700px) {
+  .transcript-row {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
 @media (max-width: 520px) {
   .ssh-scenario-buttons .tab-button {
     width: 100%;
@@ -416,6 +594,10 @@ code {
   .handshake-card-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  .pending-actions .tab-button {
+    width: 100%;
   }
 
   /* Hide the decorative @@@ borders of the SSH-style warning on narrow
