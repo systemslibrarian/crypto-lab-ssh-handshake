@@ -343,10 +343,10 @@ function decisionLabel(d: ConnectResult['hostKeyDecision']): string {
 function decisionBanner(result: ConnectResult): string {
 	if (result.hostKeyDecision === 'CHANGED-REJECTED') {
 		return `
-			<div class="ssh-warning ssh-warning--bad">
-				<p class="ssh-warning-title">@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@</p>
+			<div class="ssh-warning ssh-warning--bad" role="alert">
+				<p class="ssh-warning-title ssh-warning-deco" aria-hidden="true">@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@</p>
 				<p class="ssh-warning-title">@&nbsp;&nbsp;&nbsp;&nbsp;WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!&nbsp;&nbsp;&nbsp;&nbsp;@</p>
-				<p class="ssh-warning-title">@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@</p>
+				<p class="ssh-warning-title ssh-warning-deco" aria-hidden="true">@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@@</p>
 				<p class="ssh-warning-body">IT IS POSSIBLE THAT SOMEONE IS DOING SOMETHING NASTY! Someone could be eavesdropping on you right now (man-in-the-middle attack). The host key has changed since the last time you connected. Either the host was reinstalled, or this is the attack TOFU is designed to catch.</p>
 			</div>
 		`;
@@ -555,7 +555,7 @@ function renderConceptsSection(): HTMLElement {
 				<p class="panel-copy">Three ways to decide which public keys are real. Hierarchical PKI ships roots in your OS (<a href="https://systemslibrarian.github.io/crypto-lab-pki-chain/">crypto-lab-pki-chain</a>). PGP’s Web of Trust grows a graph through people (<a href="https://systemslibrarian.github.io/crypto-lab-web-of-trust/">crypto-lab-web-of-trust</a>). SSH skips both and pins on first sight.</p>
 			</div>
 		</div>
-		<div class="table-shell">
+		<div class="table-shell" tabindex="0" role="region" aria-label="Comparison of three trust models">
 			<table class="math-table">
 				<thead>
 					<tr><th>Axis</th><th>Hierarchical PKI</th><th>Web of Trust</th><th>SSH TOFU</th></tr>

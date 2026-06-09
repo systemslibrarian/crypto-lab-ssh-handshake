@@ -42,6 +42,7 @@
   border-radius: 20px;
   background: var(--panel-strong);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -96,6 +97,7 @@
   border-radius: 20px;
   background: var(--panel-strong);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 14px;
 }
 
@@ -139,6 +141,7 @@
   margin: 0;
   padding: 0;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 10px;
   counter-reset: hsstep;
 }
@@ -195,6 +198,7 @@
   color: var(--ink-soft);
   font-size: 0.92rem;
   line-height: 1.55;
+  overflow-wrap: anywhere;
 }
 
 .handshake-summary {
@@ -206,6 +210,7 @@
   border: 1px solid var(--line);
   border-radius: 14px;
   background: var(--panel);
+  overflow-wrap: anywhere;
 }
 
 /* known_hosts pin display */
@@ -220,6 +225,7 @@
   background: var(--mono-block-bg);
   color: var(--mono-block-fg);
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
 }
 
@@ -268,12 +274,16 @@
   font-size: 0.88rem;
   line-height: 1.55;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 4px;
+  min-width: 0;
+  max-width: 100%;
 }
 
 .ssh-warning-title {
   margin: 0;
   font-weight: 700;
+  overflow-wrap: anywhere;
 }
 
 .ssh-warning-body {
@@ -321,6 +331,7 @@
   background: var(--panel-strong);
   min-height: 60px;
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 6px;
 }
 
@@ -351,7 +362,15 @@ code {
   overflow-wrap: anywhere;
 }
 
-/* Three-trust-models table needs more breathing room than the default */
+/* Three-trust-models table needs more breathing room than the default.
+ * The table-shell must be width-constrained so its overflow-x can actually
+ * scroll the wide table inside instead of bleeding to the page. */
+.lab-section .table-shell {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
+}
+
 #models .math-table {
   min-width: 980px;
 }
@@ -397,5 +416,12 @@ code {
   .handshake-card-head {
     flex-direction: column;
     align-items: flex-start;
+  }
+
+  /* Hide the decorative @@@ borders of the SSH-style warning on narrow
+   * screens. Keeping them would force horizontal overflow; the title and
+   * body still communicate the warning clearly. */
+  .ssh-warning-deco {
+    display: none;
   }
 }
