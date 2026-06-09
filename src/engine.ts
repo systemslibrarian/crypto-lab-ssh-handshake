@@ -11,6 +11,13 @@
 //   * server signs H with the host key; client verifies against known_hosts
 //   * TOFU: first connection pins the host key; later connections compare.
 
+// NOTE: this file is the verbatim engine from the build prompt's Appendix A
+// with ONE targeted refinement to `fingerprint()` (see comment on that
+// function) so that fingerprints match `ssh-keygen -lf` byte-for-byte. The
+// cryptographic logic — ephemeral KEX, exchange-hash binding, host signature,
+// signature verification — is unchanged.
+import { sshPublicKeyBlob } from './wire.ts';
+
 const enc = new TextEncoder();
 
 // Ephemeral KEX: prefer X25519, fall back to ECDH P-256.
@@ -78,10 +85,15 @@ async function sha256Hex(s: string): Promise<string> {
     return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
-// host key fingerprint as shown by ssh (SHA-256 of the public key, base64-ish)
+// Host-key fingerprint in OpenSSH's exact format: SHA-256 over the canonical
+// SSH wire-format public-key blob, base64-encoded with trailing '=' stripped.
+// Matches what `ssh-keygen -lf` prints for the same key. (The original
+// Appendix A definition hashed concatenated JWK x+y; this refinement makes
+// the fingerprint string OpenSSH-canonical without changing any other
+// cryptographic step.)
 async function fingerprint(hostPubJwk: JsonWebKey): Promise<string> {
-    const material = (hostPubJwk.x ?? '') + (hostPubJwk.y ?? '');
-    const d = await crypto.subtle.digest('SHA-256', enc.encode(material) as BufferSource);
+    const blob = sshPublicKeyBlob(hostPubJwk, sigName);
+    const d = await crypto.subtle.digest('SHA-256', blob.buffer as ArrayBuffer);
     return 'SHA256:' + b64(d).replace(/=+$/, '');
 }
 

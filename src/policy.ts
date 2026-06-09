@@ -4,6 +4,7 @@
 // ssh-keygen -F (lookup) and ssh-keygen -R (remove) operations.
 
 import type { ConnectResult, ServerHello, SshClient } from './engine.ts';
+import { sshPublicKeyBase64, sshPublicKeyBlob } from './wire.ts';
 
 export type StrictMode =
 	| 'yes'         // refuse unknown hosts entirely
@@ -163,18 +164,22 @@ function replaceLastDecisionStep(
 	return copy;
 }
 
-// Render a known_hosts entry that follows the OpenSSH format
-// `hostname keytype base64key` — the bits a learner can map straight to
-// `~/.ssh/known_hosts`. The key bytes are JWK-derived rather than the literal
-// SSH wire format; for an educational model the SHAPE is what matters.
+// Render an OpenSSH known_hosts entry — exact wire format:
+// `hostname keytype base64(SSH-wire-format-pubkey)`. The third field is
+// byte-identical to what ssh-keyscan would produce for the same key, so a
+// learner can copy/paste into ~/.ssh/known_hosts and reason about it.
 export function knownHostsLine(
 	hostName: string,
 	hostPubJwk: JsonWebKey,
 	sigAlgoName: string,
 ): string {
 	const keytype = sshKeyType(sigAlgoName);
-	const material = ((hostPubJwk.x ?? '') + (hostPubJwk.y ?? '')) || '(no key material)';
-	return `${hostName} ${keytype} ${material}`;
+	try {
+		const blob = sshPublicKeyBlob(hostPubJwk, sigAlgoName);
+		return `${hostName} ${keytype} ${sshPublicKeyBase64(blob)}`;
+	} catch {
+		return `${hostName} ${keytype} (key material unavailable)`;
+	}
 }
 
 export function sshKeyType(sigAlgoName: string): string {

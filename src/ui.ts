@@ -34,9 +34,11 @@ import {
 	verifySshfp,
 } from './sshfp.ts';
 import { HostCA, verifyCert, caAlgo, type HostCert } from './ca.ts';
+import { sshKeyTypeFromSigAlgo, sshfpRecord, sshPublicKeyBlob } from './wire.ts';
 import {
 	CITATIONS,
 	HANDSHAKE_CONCEPTS,
+	OPENSSH_CROSSWALK,
 	REAL_WORLD,
 	SCOPE,
 	THREE_TRUST_MODELS,
@@ -615,6 +617,30 @@ function renderPendingPrompt(pending: NonNullable<PolicyConnectResult['pendingFi
 	`;
 }
 
+function renderCertFields(c: HostCert): string {
+	const opts = Object.keys(c.criticalOptions).length === 0 ? '(none)' : JSON.stringify(c.criticalOptions);
+	const exts = Object.keys(c.extensions).length === 0 ? '(none)' : JSON.stringify(c.extensions);
+	return `
+		<details class="known-hosts-file" open>
+			<summary>ssh-keygen -L -f host_key-cert.pub</summary>
+			<dl class="sshfp-grid cert-grid">
+				<dt>type</dt><dd><code>ssh-${caAlgo() === 'Ed25519' ? 'ed25519' : 'ecdsa-sha2-nistp256'}-cert-v01@openssh.com host certificate</code></dd>
+				<dt>signing CA</dt><dd><code>${c.issuer} (${c.issuerFingerprint})</code></dd>
+				<dt>key ID</dt><dd><code>"${c.keyId}"</code></dd>
+				<dt>serial</dt><dd><code>${c.serial}</code></dd>
+				<dt>nonce</dt><dd><code>${shortBytes(c.nonce, 16, 8)}</code></dd>
+				<dt>principals</dt><dd><code>${c.validPrincipals.join(', ')}</code></dd>
+				<dt>valid after</dt><dd><code>${c.validAfter}</code></dd>
+				<dt>valid before</dt><dd><code>${c.validBefore}</code></dd>
+				<dt>critical options</dt><dd><code>${opts}</code></dd>
+				<dt>extensions</dt><dd><code>${exts}</code></dd>
+				<dt>signature</dt><dd><code>${shortBytes(c.signature, 24, 12)}</code></dd>
+			</dl>
+			<p class="kh-hint">Same field set as <code>ssh-keygen -L</code> prints for a real OpenSSH host certificate. The on-disk format is an SSH-wire-format blob; this demo encodes the same fields in JSON for readability.</p>
+		</details>
+	`;
+}
+
 function renderCaCard(state: AppState): string {
 	if (!state.ca) {
 		return `
@@ -629,15 +655,7 @@ function renderCaCard(state: AppState): string {
 	}
 	const id = state.ca.publicIdentity();
 	const certInfo = state.currentCert
-		? `
-			<dl class="sshfp-grid">
-				<dt>principal</dt><dd><code>${state.currentCert.hostName}</code></dd>
-				<dt>issuer</dt><dd><code>${state.currentCert.issuer}</code></dd>
-				<dt>issued</dt><dd><code>${state.currentCert.issuedAt}</code></dd>
-				<dt>expires</dt><dd><code>${state.currentCert.validUntil}</code></dd>
-				<dt>signature</dt><dd><code>${shortBytes(state.currentCert.signature, 24, 12)}</code></dd>
-			</dl>
-		`
+		? renderCertFields(state.currentCert)
 		: '<p class="panel-copy ssh-empty">No certificate signed yet.</p>';
 	return `
 		<div class="host-card sshfp-card">
@@ -656,8 +674,27 @@ function renderCaCard(state: AppState): string {
 	`;
 }
 
-function renderSshfpCard(_state: AppState): string {
+function renderSshfpCard(state: AppState): string {
 	const rec = lookupSshfp(HOST_NAME);
+	let rrLine = '(record not yet published)';
+	if (rec && state.server) {
+		// Best-effort RR rendering — uses the current host's actual blob.
+		const id = state.server.publicIdentity();
+		try {
+			const sig = algoNames().sig;
+			const blob = sshPublicKeyBlob(id.hostPubJwk, sig);
+			const keyType = sshKeyTypeFromSigAlgo(sig);
+			// sshfpRecord is async; we render synchronously here, so embed an
+			// async stub that the page will replace via a data attribute.
+			rrLine = `<span data-sshfp-rr data-keytype="${keyType}"></span>`;
+			void sshfpRecord(HOST_NAME, blob, keyType).then((r) => {
+				const span = document.querySelector(`[data-sshfp-rr][data-keytype="${keyType}"]`);
+				if (span) span.textContent = r.rr;
+			});
+		} catch {
+			rrLine = '(RR rendering unavailable for this algorithm)';
+		}
+	}
 	const body = rec
 		? `
 			<p class="host-card-label">SSHFP DNS record (published)</p>
@@ -665,7 +702,9 @@ function renderSshfpCard(_state: AppState): string {
 				<dt>name</dt><dd><code>${rec.hostName}</code></dd>
 				<dt>fingerprint</dt><dd><code>${rec.fingerprint}</code></dd>
 				<dt>signed</dt><dd>${rec.dnssecSigned ? '<code>DNSSEC ✓ trustworthy channel</code>' : '<code class="warn">unsigned — DNS-spoofable</code>'}</dd>
+				<dt>dig output</dt><dd><pre class="kh-file"><code>${rrLine}</code></pre></dd>
 			</dl>
+			<p class="kh-hint">SSHFP RDATA: <code>&lt;algorithm&gt; &lt;fp-type&gt; &lt;hex-fingerprint&gt;</code>. Algorithm 4 = Ed25519, 3 = ECDSA. fp-type 2 = SHA-256. (RFC 4255 + RFC 7479.)</p>
 			<div class="pending-actions">
 				<button id="sshfp-remove" class="tab-button" type="button">Remove SSHFP record</button>
 			</div>
@@ -713,11 +752,12 @@ function renderTranscript(transcript: Transcript | null, result: ConnectResult |
 				<div class="${rowClass('clientEphemeralPubJwk')}"><span class="t-label">client ephemeral pubkey</span><code>${jwkPreview(transcript.clientEphemeralPubJwk)}</code></div>
 				<div class="${rowClass('serverEphemeralPubJwk')}"><span class="t-label">server ephemeral pubkey</span><code>${jwkPreview(transcript.serverEphemeralPubJwk)}</code></div>
 				<div class="${rowClass('hostPubJwk')}"><span class="t-label">host pubkey (long-term)</span><code>${jwkPreview(transcript.hostPubJwk)}  → ${shortBytes(fpFromHost)}</code></div>
-				<div class="${rowClass('exchangeHash')}"><span class="t-label">exchange hash H</span><code>${transcript.exchangeHash ?? '(none)'}</code></div>
+				<div class="${rowClass('exchangeHash')}"><span class="t-label" title="Teaching surrogate — see Scope section">exchange hash H *</span><code>${transcript.exchangeHash ?? '(none)'}</code></div>
 				<div class="${rowClass('hostSignatureB64')}"><span class="t-label">host signature over H</span><code>${shortBytes(transcript.hostSignatureB64, 28, 16)}</code></div>
 				<div class="transcript-row"><span class="t-label">shared secret (display)</span><code>${shortBytes(transcript.sharedSecretB64, 22, 10)}</code></div>
 				<div class="transcript-row"><span class="t-label">decision</span><code>${result.hostKeyDecision}</code></div>
 			</div>
+			<p class="transcript-footnote">* "Exchange hash H" here is a teaching surrogate. Real RFC 4253 / RFC 8731 H also commits the SSH version strings and KEX_INIT payloads that this demo does not model. See Scope &amp; provenance for the full list.</p>
 			<div class="transcript-actions">
 				<button class="tab-button transcript-copy" type="button" data-json='${encodeForAttr(json)}'>Copy transcript as JSON</button>
 				<span class="transcript-copy-msg" aria-live="polite"></span>
@@ -802,10 +842,14 @@ function renderKnownHosts(state: AppState): HTMLElement {
 			<p class="hero-metric-label">known_hosts (in memory)</p>
 			<ul class="pin-list">${rows}</ul>
 			<details class="known-hosts-file">
-				<summary>~/.ssh/known_hosts (file format)</summary>
+				<summary>~/.ssh/known_hosts (file format — exact)</summary>
 				<pre class="kh-file"><code>${file}</code></pre>
-				<p class="kh-hint">Real OpenSSH wraps the base64 key bytes in a small wire-format header per key type; this demo shows the JWK material to keep the shape readable. Real files may also use HashKnownHosts (hashed hostnames starting with <code>|1|</code>).</p>
-				<p class="kh-hint">A typical sshd offers ed25519, ecdsa, AND rsa host keys — your known_hosts ends up with one line per algorithm. Modelling all three at once requires a sshd that runs multiple algorithms; this demo runs one at a time and labels which.</p>
+				<p class="kh-hint">Third field is base64 of the canonical OpenSSH wire-format public key blob (RFC 4253 §6.6 / RFC 8709 §4), exactly what <code>ssh-keyscan</code> produces. Real files may also use HashKnownHosts (hashed hostnames starting with <code>|1|</code>).</p>
+			</details>
+			<details class="known-hosts-file">
+				<summary>Multi-key host: what real OpenSSH writes (illustrative)</summary>
+				<pre class="kh-file"><code>${escapeHtml(multiKeyIllustration(currentJwk, sig))}</code></pre>
+				<p class="kh-hint">A typical sshd offers ed25519, ecdsa, AND rsa host keys at the same hostname — your known_hosts ends up with one line per algorithm. This demo's engine runs ONE algorithm at a time, so only the ${sshKeyType(sig)} line above is the result of an actual handshake; the others are placeholders showing the file shape.</p>
 			</details>
 			<details class="known-hosts-file">
 				<summary>ssh-keygen -F ${HOST_NAME}</summary>
@@ -813,6 +857,26 @@ function renderKnownHosts(state: AppState): HTMLElement {
 			</details>
 		`,
 	});
+}
+
+function multiKeyIllustration(currentJwk: JsonWebKey | null, currentSig: string): string {
+	const ACTIVE = sshKeyType(currentSig);
+	const activeLine = currentJwk
+		? knownHostsLine(HOST_NAME, currentJwk, currentSig)
+		: `${HOST_NAME} ${ACTIVE} <active key>`;
+	const placeholderEd25519 = `${HOST_NAME} ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAILLUSTRATIVEonlyNOTrealKEYbytesAAAAAAAAAAAAA`;
+	const placeholderEcdsa = `${HOST_NAME} ecdsa-sha2-nistp256 AAAAE2VjZHNhLXNoYTItbmlzdHAyNTYAAAAIbmlzdHAyNTYAAABBBILLUSTRATIVEonlyNOTrealKEYbytesAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=`;
+	const placeholderRsa = `${HOST_NAME} ssh-rsa AAAAB3NzaC1yc2EAAAADAQABAAABAQILLUSTRATIVEonlyNOTrealKEYbytes...`;
+	const lines: string[] = ['# real-sshd lines, one per host-key algorithm:'];
+	if (ACTIVE === 'ssh-ed25519') {
+		lines.push(activeLine + '    # ← active in this demo');
+		lines.push(placeholderEcdsa + '    # illustrative only');
+	} else {
+		lines.push(placeholderEd25519 + '    # illustrative only');
+		lines.push(activeLine + '    # ← active in this demo');
+	}
+	lines.push(placeholderRsa + '    # illustrative only (RSA not modelled by Web Crypto Ed25519/ECDSA fallback)');
+	return lines.join('\n');
 }
 
 function escapeHtml(s: string): string {
@@ -1407,6 +1471,16 @@ function renderScopeSection(): HTMLElement {
 	`,
 	).join('');
 
+	const crosswalkRows = OPENSSH_CROSSWALK.map(
+		(r) => `
+			<tr>
+				<td>${r.demo}</td>
+				<td><code>${r.openssh}</code></td>
+				<td class="crosswalk-notes">${r.notes}</td>
+			</tr>
+		`,
+	).join('');
+
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
@@ -1416,6 +1490,16 @@ function renderScopeSection(): HTMLElement {
 			</div>
 		</div>
 		<div class="reuse-grid scope-grid">${scopeCards}</div>
+		<h3 class="ssh-section-h">Take it back to the terminal — OpenSSH crosswalk</h3>
+		<p class="panel-copy">Each artifact in this demo, mapped to the closest command or file in real OpenSSH.</p>
+		<div class="table-shell" tabindex="0" role="region" aria-label="Mapping of demo artifacts to real OpenSSH commands">
+			<table class="math-table crosswalk-table">
+				<thead>
+					<tr><th>In this demo</th><th>In OpenSSH</th><th>Notes</th></tr>
+				</thead>
+				<tbody>${crosswalkRows}</tbody>
+			</table>
+		</div>
 		<h3 class="ssh-section-h">References</h3>
 		<ul class="citation-list">${citationItems}</ul>
 	`;

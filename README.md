@@ -38,10 +38,11 @@ npm install
 npm run dev        # local dev server with HMR
 npm run build      # type-check + production build to dist/
 npm run preview    # serve the built dist/ locally
-npm test           # vitest — 30 tests across the engine, policy, SSHFP, and CA modules
+npm test           # vitest — 40 unit tests (engine, policy, wire format, SSHFP, CA)
+npm run test:e2e   # playwright — 13 browser tests for the teaching flows (needs `npx playwright install chromium`)
 ```
 
-No environment variables, no API keys, no servers. Everything runs client-side in the browser. The engine in `src/engine.ts` uses Web Crypto only and is the verbatim source from the build prompt; everything around it (StrictHostKeyChecking policy in `src/policy.ts`, SSHFP registry in `src/sshfp.ts`, host CA in `src/ca.ts`, transcript capture in `src/transcript.ts`) is built on top without modifying the cryptographic core.
+No environment variables, no API keys, no servers. Everything runs client-side in the browser. The engine in `src/engine.ts` is the verbatim source from the build prompt; the only post-hoc refinement is `fingerprint()`, which now hashes the canonical OpenSSH wire-format public-key blob (via `src/wire.ts`) instead of concatenated JWK coordinates so the demo's `SHA256:` strings match what `ssh-keygen -lf` prints. The other modules — StrictHostKeyChecking policy in `src/policy.ts`, SSHFP registry in `src/sshfp.ts`, host CA in `src/ca.ts`, transcript capture in `src/transcript.ts` — sit on top of the engine without touching its cryptographic logic.
 
 ## Part of the Crypto-Lab Suite
 

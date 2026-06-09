@@ -54,6 +54,31 @@ describe('HostCA + verifyCert', () => {
 		expect(verdict.reason).toMatch(/expired/);
 	});
 
+	it('issues a cert with OpenSSH-shaped fields: serial, nonce, key_id, principals', async () => {
+		const ca = await HostCA.create('Acme CA');
+		const server = await SshServer.create(HOST);
+		const cert = await ca.sign(HOST, server.publicIdentity().hostPubJwk);
+		expect(cert.nonce.length).toBeGreaterThan(40); // base64 of 32 bytes
+		expect(cert.serial).toMatch(/^\d+$/);
+		expect(cert.certType).toBe('host');
+		expect(cert.validPrincipals).toContain(HOST);
+		expect(cert.keyId).toContain(HOST);
+		expect(cert.criticalOptions).toEqual({});
+		expect(cert.extensions).toEqual({});
+		expect(cert.reserved).toBe('');
+	});
+
+	it('rejects a cert whose valid_principals omits the connection name', async () => {
+		const ca = await HostCA.create('Acme CA');
+		const server = await SshServer.create(HOST);
+		const cert = await ca.sign(HOST, server.publicIdentity().hostPubJwk, {
+			validPrincipals: ['someone-else.example.com'],
+		});
+		const verdict = await verifyCert(cert, ca.publicIdentity().pubJwk, HOST, server.publicIdentity().hostPubJwk);
+		expect(verdict.valid).toBe(false);
+		expect(verdict.reason).toMatch(/valid_principals/);
+	});
+
 	it('the same CA can sign a rotated host key so reconnect avoids the TOFU prompt', async () => {
 		const ca = await HostCA.create('Acme CA');
 		const oldServer = await SshServer.create(HOST);

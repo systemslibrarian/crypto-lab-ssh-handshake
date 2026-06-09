@@ -309,6 +309,15 @@
   overflow-wrap: anywhere;
 }
 
+/* The general code chip style would put accent-blue on the dark mono block —
+ * borderline contrast. Force monoblock palette for code inside kh-file. */
+.kh-file code,
+.kh-file code * {
+  background: transparent;
+  color: var(--mono-block-fg);
+  padding: 0;
+}
+
 .kh-hint {
   margin: 8px 0 0;
   font-family: var(--sans);
@@ -371,6 +380,11 @@
 .ca-cert-h {
   margin: 14px 0 4px;
   font-size: 0.92rem;
+}
+
+.cert-grid dt {
+  text-transform: none;
+  letter-spacing: 0;
 }
 
 /* Three-demos first-contact callouts */
@@ -499,6 +513,25 @@ code {
 .mono-inline {
   word-break: break-word;
   overflow-wrap: anywhere;
+}
+
+/* OpenSSH crosswalk table — wide enough to need horizontal scroll on mobile */
+.crosswalk-table {
+  min-width: 880px;
+}
+
+.crosswalk-table td {
+  vertical-align: top;
+}
+
+.crosswalk-table code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.crosswalk-notes {
+  font-size: 0.9rem;
+  color: var(--ink-soft);
 }
 
 /* Three-trust-models table needs more breathing room than the default.
@@ -766,6 +799,14 @@ code {
   letter-spacing: 0.04em;
   color: var(--ink-soft);
   text-transform: uppercase;
+}
+
+.transcript-footnote {
+  margin: 8px 0 0;
+  font-family: var(--sans);
+  font-size: 0.82rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
 }
 
 .transcript-actions {

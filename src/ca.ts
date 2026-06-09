@@ -49,26 +49,65 @@ async function fingerprint(pubJwk: JsonWebKey): Promise<string> {
 	return 'SHA256:' + b64(d).replace(/=+$/, '');
 }
 
-// A simplified OpenSSH host certificate.
+// OpenSSH host certificate — same field set as PROTOCOL.certkeys (nonce,
+// serial, type, key id, principals, valid-after/before, critical options,
+// extensions, reserved, signature key, signature). The wire layout here is a
+// JSON envelope rather than ssh-string-prefixed bytes, so the certificate
+// LOGIC is faithful but the on-disk format is compressed for the demo.
 export interface HostCert {
-	hostName: string;            // principal — must match the connection name
+	nonce: string;               // 32 random bytes (base64) — anti-pre-signing
+	hostName: string;            // legacy single-principal field this demo uses
 	hostPubJwk: JsonWebKey;      // the host pubkey this cert authorizes
-	issuer: string;              // CA display name
+	serial: string;              // OpenSSH's 64-bit serial (string for JSON safety)
+	certType: 'host';            // SSH_CERT_TYPE_HOST = 2
+	keyId: string;               // free-form operator id (man-page "key_id")
+	validPrincipals: string[];   // hostnames the cert authorizes
+	validAfter: string;          // ISO — "after this instant the cert is valid"
+	validBefore: string;         // ISO — historical name for the expiry
+	criticalOptions: Record<string, string>;
+	extensions: Record<string, string>;
+	reserved: string;            // OpenSSH cert always carries an empty reserved field
+	issuer: string;              // CA display name (signature_key in OpenSSH)
 	issuerFingerprint: string;
-	issuedAt: string;            // ISO
-	validUntil: string;          // ISO
-	signature: string;           // base64 of CA signature over the cert body
+	issuedAt: string;            // ISO — convenience mirror of validAfter
+	validUntil: string;          // ISO — convenience mirror of validBefore
+	signature: string;           // base64 of CA signature over the body
 }
 
 function certBody(cert: Omit<HostCert, 'signature'>): string {
 	return [
+		cert.nonce,
 		cert.hostName,
 		(cert.hostPubJwk.x ?? '') + (cert.hostPubJwk.y ?? ''),
+		cert.serial,
+		cert.certType,
+		cert.keyId,
+		cert.validPrincipals.join(','),
+		cert.validAfter,
+		cert.validBefore,
+		JSON.stringify(cert.criticalOptions),
+		JSON.stringify(cert.extensions),
+		cert.reserved,
 		cert.issuer,
 		cert.issuerFingerprint,
 		cert.issuedAt,
 		cert.validUntil,
 	].join('|');
+}
+
+function randomNonceB64(): string {
+	const bytes = new Uint8Array(32);
+	crypto.getRandomValues(bytes);
+	let s = '';
+	for (let i = 0; i < bytes.length; i++) s += String.fromCharCode(bytes[i]);
+	return btoa(s);
+}
+
+function randomSerial(): string {
+	// 64-bit unsigned serial — two 32-bit halves to stay inside JS number safety.
+	const hi = Math.floor(Math.random() * 0x100000000);
+	const lo = Math.floor(Math.random() * 0x100000000);
+	return (BigInt(hi) * 0x100000000n + BigInt(lo)).toString();
 }
 
 export class HostCA {
@@ -95,17 +134,39 @@ export class HostCA {
 		return { name: this.name, pubJwk: this.pub, fingerprint: this.fingerprint };
 	}
 
-	async sign(hostName: string, hostPubJwk: JsonWebKey, validityDays = 365): Promise<HostCert> {
+	async sign(
+		hostName: string,
+		hostPubJwk: JsonWebKey,
+		options: {
+			validityDays?: number;
+			keyId?: string;
+			validPrincipals?: string[];
+			criticalOptions?: Record<string, string>;
+			extensions?: Record<string, string>;
+		} = {},
+	): Promise<HostCert> {
 		await init();
 		const issuedAt = new Date();
-		const validUntil = new Date(issuedAt.getTime() + validityDays * 24 * 3600 * 1000);
+		const validUntil = new Date(issuedAt.getTime() + (options.validityDays ?? 365) * 24 * 3600 * 1000);
+		const issuedAtIso = issuedAt.toISOString();
+		const validUntilIso = validUntil.toISOString();
 		const body: Omit<HostCert, 'signature'> = {
+			nonce: randomNonceB64(),
 			hostName,
 			hostPubJwk,
+			serial: randomSerial(),
+			certType: 'host',
+			keyId: options.keyId ?? `host-cert:${hostName}@${issuedAtIso.slice(0, 10)}`,
+			validPrincipals: options.validPrincipals ?? [hostName],
+			validAfter: issuedAtIso,
+			validBefore: validUntilIso,
+			criticalOptions: options.criticalOptions ?? {},
+			extensions: options.extensions ?? {},
+			reserved: '',
 			issuer: this.name,
 			issuerFingerprint: this.fingerprint,
-			issuedAt: issuedAt.toISOString(),
-			validUntil: validUntil.toISOString(),
+			issuedAt: issuedAtIso,
+			validUntil: validUntilIso,
 		};
 		const sig = await crypto.subtle.sign(SIG_PARAMS, this.priv, enc.encode(certBody(body)) as BufferSource);
 		return { ...body, signature: b64(sig) };
@@ -138,20 +199,21 @@ export async function verifyCert(
 	if (new Date(cert.issuedAt) > now) {
 		return { valid: false, reason: `cert issuedAt ${cert.issuedAt} is in the future` };
 	}
+	if (!cert.validPrincipals.includes(expectedHostName)) {
+		return { valid: false, reason: `cert valid_principals ${JSON.stringify(cert.validPrincipals)} does not include ${expectedHostName}` };
+	}
+	if (cert.certType !== 'host') {
+		return { valid: false, reason: `cert type "${cert.certType}" is not "host" — refusing to use it for host authentication` };
+	}
 	try {
 		const caKey = await crypto.subtle.importKey('jwk', caPubJwk, SIG_ALGO, false, ['verify']);
-		const body = certBody({
-			hostName: cert.hostName,
-			hostPubJwk: cert.hostPubJwk,
-			issuer: cert.issuer,
-			issuerFingerprint: cert.issuerFingerprint,
-			issuedAt: cert.issuedAt,
-			validUntil: cert.validUntil,
-		});
+		const { signature, ...rest } = cert;
+		void signature;
+		const body = certBody(rest);
 		const ok = await crypto.subtle.verify(SIG_PARAMS, caKey, unb64(cert.signature) as BufferSource, enc.encode(body) as BufferSource);
 		if (!ok) return { valid: false, reason: 'CA signature on cert did not verify' };
 	} catch (err) {
 		return { valid: false, reason: `cert verification threw: ${(err as Error).message}` };
 	}
-	return { valid: true, reason: `cert valid; signed by ${cert.issuer} (${cert.issuerFingerprint}) and binds ${expectedHostName} to ${certHostFp}.` };
+	return { valid: true, reason: `cert valid; signed by ${cert.issuer} (${cert.issuerFingerprint}), serial ${cert.serial}, key_id "${cert.keyId}". Binds ${expectedHostName} to ${certHostFp}.` };
 }

@@ -145,6 +145,15 @@ export const SCOPE: ScopeCard[] = [
 			'OpenSSH host certificates and SSHFP / DNSSEC bootstrap (modelled in later sections, not in the core engine).',
 		],
 	},
+	{
+		heading: 'Where exactness is compressed for teaching',
+		bullets: [
+			'The "exchange hash H" here is a teaching surrogate. Real RFC 4253 / RFC 8731 H additionally binds the client and server version strings (V_C, V_S) and the KEX_INIT payloads (I_C, I_S) that this demo does not model. The PROPERTY — H commits the entire handshake transcript so a substitution breaks the host signature — is faithful; the exact byte layout is not.',
+			'Host public keys are JWK-derived internally for the engine, then re-serialised as canonical OpenSSH wire-format blobs for fingerprints and known_hosts display. The fingerprints in the UI match what ssh-keygen -lf would print for the same key.',
+			'Multi-key hosts (an sshd offering ed25519 + ecdsa + rsa at the same hostname) are illustrated in the known_hosts panel but only ONE algorithm runs end-to-end per demo session — the engine initializes one KEX and one SIG algorithm at startup.',
+			'OpenSSH host certificates here use a compact JSON body and an Ed25519/ECDSA signature. Real OpenSSH certs are SSH-wire-format blobs with serial, nonce, principals, valid-after/before, critical-options, and extensions — the trust logic is faithful, the byte layout is compressed.',
+		],
+	},
 ];
 
 export interface Citation {
@@ -178,9 +187,14 @@ export const CITATIONS: Citation[] = [
 		note: 'Adds ECDH / ECDSA on NIST curves, including the P-256 fallback this demo uses.',
 	},
 	{
-		label: 'draft-josefsson-ntruprime-ssh — modern curves',
-		url: 'https://datatracker.ietf.org/doc/draft-josefsson-ntruprime-ssh/',
-		note: 'Reference point for X25519 and Ed25519 use in SSH, the algorithms this demo prefers.',
+		label: 'RFC 8709 — Ed25519 and Ed448 host/user keys in SSH',
+		url: 'https://www.rfc-editor.org/rfc/rfc8709',
+		note: 'Adds the ssh-ed25519 host-key algorithm this demo uses by default — same wire format as OpenSSH.',
+	},
+	{
+		label: 'RFC 8731 — Curve25519 and Curve448 key exchange in SSH',
+		url: 'https://www.rfc-editor.org/rfc/rfc8731',
+		note: 'Standards-track curve25519-sha256 / curve448-sha512 KEX — the preferred SSH KEX today.',
 	},
 	{
 		label: 'OpenSSH PROTOCOL.certkeys — host certificates',
@@ -201,6 +215,72 @@ export const CITATIONS: Citation[] = [
 		label: 'man 8 sshd — host keys, multiple algorithms per host',
 		url: 'https://man.openbsd.org/sshd.8',
 		note: 'How real sshd holds an ed25519, ecdsa, and (legacy) rsa host key all under one name.',
+	},
+];
+
+export interface CrosswalkRow {
+	demo: string;       // what you see in this demo
+	openssh: string;    // the closest real-OpenSSH command or file
+	notes: string;
+}
+
+// "Take it back to the terminal" map: each demo artifact lined up with the
+// command or file that produces the same thing in real OpenSSH.
+export const OPENSSH_CROSSWALK: CrosswalkRow[] = [
+	{
+		demo: 'Host fingerprint badge in section 1',
+		openssh: 'ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub',
+		notes: 'Both render SHA256:<base64> of the host public key blob.',
+	},
+	{
+		demo: 'The known_hosts (file format) panel',
+		openssh: '~/.ssh/known_hosts',
+		notes: 'One line per host+algorithm: <hostname> <keytype> <base64-key>. The demo synthesises one active line plus an illustrative multi-key panel.',
+	},
+	{
+		demo: 'ssh-keygen -F server.example.com button',
+		openssh: 'ssh-keygen -F server.example.com',
+		notes: 'Looks up an entry in known_hosts; exit status 0 = found, 1 = not found.',
+	},
+	{
+		demo: 'ssh-keygen -R server.example.com button',
+		openssh: 'ssh-keygen -R server.example.com',
+		notes: 'Removes a stale entry from known_hosts — the standard recovery from a legitimate host-key rotation.',
+	},
+	{
+		demo: 'First-contact prompt (ask mode)',
+		openssh: 'ssh user@server.example.com',
+		notes: 'OpenSSH prints "The authenticity of host \'server.example.com\' can\'t be established. <type> key fingerprint is SHA256:… Are you sure you want to continue connecting (yes/no/[fingerprint])?".',
+	},
+	{
+		demo: 'Discover the host key without connecting',
+		openssh: 'ssh-keyscan -t ed25519 server.example.com',
+		notes: 'Server presents host keys WITHOUT the userauth/connection layers — useful for pre-seeding known_hosts from a trusted source.',
+	},
+	{
+		demo: 'Transcript inspector (handshake artifacts)',
+		openssh: 'ssh -vvv user@server.example.com',
+		notes: 'Real ssh prints algorithm negotiation, exchange-hash inputs, KEXINIT cookies, and signature bytes at -vvv. The demo skips negotiation and surfaces the rest.',
+	},
+	{
+		demo: 'SSHFP DNS RR card in section 1',
+		openssh: 'dig +dnssec SSHFP server.example.com',
+		notes: 'Real DNSSEC-aware dig shows the SSHFP RDATA plus an ad flag if validated.',
+	},
+	{
+		demo: 'HostCA / @cert-authority panel',
+		openssh: 'ssh-keygen -s ca_key -I id -h -n server.example.com host_key.pub',
+		notes: 'Issues an OpenSSH host certificate. Clients trust the CA via @cert-authority lines in known_hosts; one CA pin replaces many host pins.',
+	},
+	{
+		demo: 'StrictHostKeyChecking selector',
+		openssh: 'ssh -o StrictHostKeyChecking={yes,ask,accept-new,no}',
+		notes: 'Same four-value setting. accept-new is the modern default for automation, ask is the interactive default, yes is paranoid, no is dangerous.',
+	},
+	{
+		demo: 'HOST KEY CHANGED warning banner',
+		openssh: 'ssh server.example.com (after a key change)',
+		notes: '"WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!" — exact wording lifted from OpenSSH. The recovery flow is ssh-keygen -R, then reconnect (after verifying the new fingerprint OOB).',
 	},
 ];
 

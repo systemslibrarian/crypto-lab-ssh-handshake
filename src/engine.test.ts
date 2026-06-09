@@ -11,6 +11,7 @@ import {
 	algoNames,
 	type ServerHello,
 } from './engine.ts';
+import { sshFingerprint, sshPublicKeyBlob } from './wire.ts';
 
 const HOST = 'server.example.com';
 
@@ -134,5 +135,14 @@ describe('SSH handshake engine', () => {
 		const server = await SshServer.create(HOST);
 		const attacker = await makeMitm(HOST);
 		expect(attacker.identity.fingerprint).not.toBe(server.publicIdentity().fingerprint);
+	});
+
+	it('engine fingerprint matches ssh-keygen -lf format (SHA-256 over the canonical wire blob)', async () => {
+		const server = await SshServer.create(HOST);
+		const id = server.publicIdentity();
+		const blob = sshPublicKeyBlob(id.hostPubJwk, algoNames().sig);
+		const wireFp = await sshFingerprint(blob);
+		expect(id.fingerprint).toBe(wireFp);
+		expect(id.fingerprint).toMatch(/^SHA256:[A-Za-z0-9+/]+$/);
 	});
 });
