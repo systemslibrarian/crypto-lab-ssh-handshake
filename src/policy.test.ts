@@ -1,7 +1,7 @@
 // policy.test.ts — coverage of the StrictHostKeyChecking policy wrapper.
 
 import { describe, expect, it } from 'vitest';
-import { SshClient, SshServer, makeMitm } from './engine.ts';
+import { SshClient, SshServer, makeMitm, algoNames } from './engine.ts';
 import { clearKnownHosts, connectWithPolicy, findPin, removePin } from './policy.ts';
 
 const HOST = 'server.example.com';
@@ -25,7 +25,7 @@ describe('connectWithPolicy', () => {
 		expect(r.pendingFirstContact!.presentedFingerprint).toBe(server.publicIdentity().fingerprint);
 		expect(client.knownHosts.has(HOST)).toBe(false); // not pinned yet
 		r.pendingFirstContact!.accept();
-		expect(client.knownHosts.get(HOST)).toBe(server.publicIdentity().fingerprint);
+		expect(client.knownHosts.get(HOST)?.get(algoNames().sig)).toBe(server.publicIdentity().fingerprint);
 	});
 
 	it('mode=ask lets the caller reject and leaves known_hosts empty', async () => {
@@ -41,7 +41,7 @@ describe('connectWithPolicy', () => {
 		const client = new SshClient();
 		const r = await connectWithPolicy(client, HOST, server, 'accept-new');
 		expect(r.connected).toBe(true);
-		expect(client.knownHosts.get(HOST)).toBe(server.publicIdentity().fingerprint);
+		expect(client.knownHosts.get(HOST)?.get(algoNames().sig)).toBe(server.publicIdentity().fingerprint);
 	});
 
 	it('mode=accept-new still rejects a changed host key', async () => {
@@ -61,7 +61,7 @@ describe('connectWithPolicy', () => {
 		const newServer = await SshServer.create(HOST);
 		const r = await connectWithPolicy(client, HOST, newServer, 'no');
 		expect(r.connected).toBe(true);
-		expect(client.knownHosts.get(HOST)).toBe(newServer.publicIdentity().fingerprint);
+		expect(client.knownHosts.get(HOST)?.get(algoNames().sig)).toBe(newServer.publicIdentity().fingerprint);
 	});
 
 	it('findPin / removePin mirror ssh-keygen -F / -R', async () => {

@@ -30,7 +30,7 @@ describe('SSH handshake engine', () => {
 		expect(result.signatureValid).toBe(true);
 		expect(result.sharedAgrees).toBe(true);
 		expect(result.hostKeyDecision).toBe('tofu-pinned');
-		expect(client.knownHosts.get(HOST)).toBe(server.publicIdentity().fingerprint);
+		expect(client.knownHosts.get(HOST)?.get(algoNames().sig)).toBe(server.publicIdentity().fingerprint);
 	});
 
 	it('reconnect: pinned fingerprint matches and the handshake succeeds', async () => {
@@ -51,7 +51,7 @@ describe('SSH handshake engine', () => {
 		expect(result.connected).toBe(false);
 		expect(result.hostKeyDecision).toBe('CHANGED-REJECTED');
 		// Pin must not be silently updated to the attacker's fingerprint.
-		expect(client.knownHosts.get(HOST)).toBe(server.publicIdentity().fingerprint);
+		expect(client.knownHosts.get(HOST)?.get(algoNames().sig)).toBe(server.publicIdentity().fingerprint);
 	});
 
 	it('MITM on first contact (fresh client): TOFU cannot detect the swap', async () => {
@@ -61,7 +61,7 @@ describe('SSH handshake engine', () => {
 		const result = await client.connect(HOST, attacker);
 		expect(result.connected).toBe(true);
 		expect(result.hostKeyDecision).toBe('tofu-pinned');
-		expect(client.knownHosts.get(HOST)).toBe(attacker.identity.fingerprint);
+		expect(client.knownHosts.get(HOST)?.get(algoNames().sig)).toBe(attacker.identity.fingerprint);
 	});
 
 	it('tampered host signature: signature verification fails and the connection is refused', async () => {
@@ -101,7 +101,7 @@ describe('SSH handshake engine', () => {
 		const recovered = await client.connect(HOST, newServer);
 		expect(recovered.connected).toBe(true);
 		expect(recovered.hostKeyDecision).toBe('tofu-pinned');
-		expect(client.knownHosts.get(HOST)).toBe(newServer.publicIdentity().fingerprint);
+		expect(client.knownHosts.get(HOST)?.get(algoNames().sig)).toBe(newServer.publicIdentity().fingerprint);
 	});
 
 	it('shared secret check: each side derives the same ECDH bits', async () => {

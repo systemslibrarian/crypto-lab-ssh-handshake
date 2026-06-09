@@ -16,7 +16,7 @@
 // function) so that fingerprints match `ssh-keygen -lf` byte-for-byte. The
 // cryptographic logic — ephemeral KEX, exchange-hash binding, host signature,
 // signature verification — is unchanged.
-import { sshPublicKeyBlob } from './wire.ts';
+import { sshPublicKeyBlob, wireString, wireMpint, concat, b64urlToBytes } from './wire.ts';
 
 const enc = new TextEncoder();
 
@@ -80,8 +80,9 @@ function unb64(s: string): Uint8Array {
     for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
     return out;
 }
-async function sha256Hex(s: string): Promise<string> {
-    const d = await crypto.subtle.digest('SHA-256', enc.encode(s) as BufferSource);
+async function sha256Hex(s: string | Uint8Array): Promise<string> {
+    const data = typeof s === 'string' ? enc.encode(s) : s;
+    const d = await crypto.subtle.digest('SHA-256', data.buffer as ArrayBuffer);
     return Array.from(new Uint8Array(d)).map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
@@ -174,13 +175,18 @@ async function exchangeHash(
     serverEphJwk: JsonWebKey,
     shared: ArrayBuffer,
 ): Promise<string> {
-    const parts = [
-        hostName,
-        (hostPubJwk.x ?? '') + (hostPubJwk.y ?? ''),
-        (clientEphJwk.x ?? '') + (clientEphJwk.y ?? ''),
-        (serverEphJwk.x ?? '') + (serverEphJwk.y ?? ''),
-        b64(shared),
-    ].join('|');
+    // For X25519, the ephemeral key is just the 32-byte raw value.
+    // For ECDH, it is an SSH string containing the uncompressed point.
+    const clientEph = KEX_ALGO.name === 'X25519' ? b64urlToBytes(clientEphJwk.x ?? '') : sshPublicKeyBlob(clientEphJwk, 'ECDSA P-256');
+    const serverEph = KEX_ALGO.name === 'X25519' ? b64urlToBytes(serverEphJwk.x ?? '') : sshPublicKeyBlob(serverEphJwk, 'ECDSA P-256');
+
+    const parts = concat(
+        wireString(hostName), // V_C / V_S / I_C / I_S omitted, just bind the hostname
+        wireString(sshPublicKeyBlob(hostPubJwk, sigName)),
+        wireString(clientEph),
+        wireString(serverEph),
+        wireMpint(shared)
+    );
     return sha256Hex(parts);
 }
 
@@ -188,7 +194,7 @@ async function exchangeHash(
 // Client: generates an ephemeral key, completes KEX, verifies the host
 // signature, and applies the known_hosts / TOFU policy.
 // =====================================================================
-export type KnownHosts = Map<string, string>; // hostName -> pinned fingerprint
+export type KnownHosts = Map<string, Map<string, string>>; // hostName -> (keyType -> pinned fingerprint)
 
 export interface ConnectResult {
     steps: { label: string; detail: string; ok: boolean }[];
@@ -247,12 +253,18 @@ export class SshClient {
 
         // 5. known_hosts / TOFU
         const presentedFp = await fingerprint(hello.hostPubJwk);
-        const pinned = this.knownHosts.get(expectedName);
+        let hostPins = this.knownHosts.get(expectedName);
+        if (!hostPins) {
+            hostPins = new Map<string, string>();
+            this.knownHosts.set(expectedName, hostPins);
+        }
+        const pinned = hostPins.get(sigName);
+        
         let hostKeyDecision: ConnectResult['hostKeyDecision'];
         let hostOk = false;
         if (!pinned) {
             hostKeyDecision = 'tofu-pinned';
-            this.knownHosts.set(expectedName, presentedFp);
+            hostPins.set(sigName, presentedFp);
             hostOk = true;
             steps.push({ label: 'known_hosts (TOFU)', detail: `First contact — pinning ${presentedFp}. (Trust on first use: unverified leap of faith.)`, ok: true });
         } else if (pinned === presentedFp) {

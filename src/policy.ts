@@ -4,6 +4,7 @@
 // ssh-keygen -F (lookup) and ssh-keygen -R (remove) operations.
 
 import type { ConnectResult, ServerHello, SshClient } from './engine.ts';
+import { algoNames } from './engine.ts';
 import { sshPublicKeyBase64, sshPublicKeyBlob } from './wire.ts';
 
 export type StrictMode =
@@ -29,8 +30,11 @@ export interface PolicyConnectResult {
 }
 
 // ssh-keygen -F equivalent: look up a pinned fingerprint.
-export function findPin(client: SshClient, hostName: string): string | undefined {
-	return client.knownHosts.get(hostName);
+export function findPin(client: SshClient, hostName: string, algoName?: string): string | undefined {
+	const hostPins = client.knownHosts.get(hostName);
+	if (!hostPins) return undefined;
+	if (algoName) return hostPins.get(algoName);
+	return hostPins.values().next().value;
 }
 
 // ssh-keygen -R equivalent: remove a pin.
@@ -54,15 +58,17 @@ export async function connectWithPolicy(
 	responder: { respond: (clientEphPubJwk: JsonWebKey) => Promise<ServerHello> },
 	mode: StrictMode,
 ): Promise<PolicyConnectResult> {
-	const wasPinned = client.knownHosts.has(hostName);
+	const sigName = algoNames().sig;
+	const wasPinned = findPin(client, hostName, sigName) !== undefined;
 	const result = await client.connect(hostName, responder);
 
 	// First-contact branch
 	if (!wasPinned && result.hostKeyDecision === 'tofu-pinned') {
-		const presentedFingerprint = client.knownHosts.get(hostName)!;
+		const presentedFingerprint = findPin(client, hostName, sigName)!;
 		if (mode === 'yes') {
 			// Refuse unknown hosts — roll back the engine's auto-pin.
-			client.knownHosts.delete(hostName);
+			client.knownHosts.get(hostName)?.delete(sigName);
+			if (client.knownHosts.get(hostName)?.size === 0) client.knownHosts.delete(hostName);
 			return {
 				result: {
 					...result,
@@ -81,7 +87,8 @@ export async function connectWithPolicy(
 		}
 		if (mode === 'ask') {
 			// Hold the decision: roll back the auto-pin and let the caller choose.
-			client.knownHosts.delete(hostName);
+			client.knownHosts.get(hostName)?.delete(sigName);
+			if (client.knownHosts.get(hostName)?.size === 0) client.knownHosts.delete(hostName);
 			return {
 				result: {
 					...result,
@@ -98,7 +105,12 @@ export async function connectWithPolicy(
 				pendingFirstContact: {
 					presentedFingerprint,
 					accept: () => {
-						client.knownHosts.set(hostName, presentedFingerprint);
+						let hostPins = client.knownHosts.get(hostName);
+						if (!hostPins) {
+							hostPins = new Map();
+							client.knownHosts.set(hostName, hostPins);
+						}
+						hostPins.set(sigName, presentedFingerprint);
 					},
 					reject: () => {
 						// no-op: known_hosts already rolled back
@@ -123,7 +135,12 @@ export async function connectWithPolicy(
 		const detail = result.steps[result.steps.length - 1]?.detail ?? '';
 		const presented = detail.match(/but got (SHA256:[A-Za-z0-9+/=]+)/)?.[1];
 		if (presented) {
-			client.knownHosts.set(hostName, presented);
+			let hostPins = client.knownHosts.get(hostName);
+			if (!hostPins) {
+				hostPins = new Map();
+				client.knownHosts.set(hostName, hostPins);
+			}
+			hostPins.set(sigName, presented);
 		}
 		return {
 			result: {

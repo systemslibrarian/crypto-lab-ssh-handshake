@@ -824,17 +824,17 @@ function renderKnownHosts(state: AppState): HTMLElement {
 	const sig = algoNames().sig;
 	const currentJwk = state.lastTranscript?.hostPubJwk ?? null;
 	const rows = Array.from(state.client.knownHosts.entries())
-		.map(([name, fp]) => `<li class="pin-row"><span class="pin-host">${name}</span><code class="pin-fp">${fp}</code></li>`)
+		.flatMap(([name, hostMap]) => Array.from(hostMap.entries()).map(([_, fp]) => `<li class="pin-row"><span class="pin-host">${name}</span><code class="pin-fp">${fp}</code></li>`))
 		.join('');
 	const file = Array.from(state.client.knownHosts.entries())
-		.map(([name]) => {
+		.flatMap(([name, hostMap]) => Array.from(hostMap.entries()).map(([algo, fp]) => {
 			// Use the captured host pubkey if it matches this name; otherwise
 			// fall back to a synthesized line showing the fingerprint.
-			if (currentJwk && name === HOST_NAME) {
+			if (currentJwk && name === HOST_NAME && algo === sig) {
 				return knownHostsLine(name, currentJwk, sig);
 			}
-			return `${name} ${sshKeyType(sig)} <pinned ${state.client.knownHosts.get(name)}>`;
-		})
+			return `${name} ${sshKeyType(algo)} <pinned ${fp}>`;
+		}))
 		.join('\n');
 	const grepOutput = sshKeygenF(state.client, HOST_NAME, currentJwk, sig);
 	return Object.assign(wrap, {
@@ -1099,7 +1099,7 @@ async function scenarioDnsSpoof(state: AppState, output: HTMLElement): Promise<v
 		const verdict = verifySshfp(HOST_NAME, policyResult.pendingFirstContact.presentedFingerprint);
 		if (verdict.kind === 'match' || verdict.kind === 'match-unsigned') {
 			policyResult.pendingFirstContact.accept();
-			pinnedFp = freshClient.knownHosts.get(HOST_NAME);
+			pinnedFp = freshClient.knownHosts.get(HOST_NAME)?.get(algoNames().sig);
 			summary = {
 				...policyResult.result,
 				hostKeyDecision: 'tofu-pinned',

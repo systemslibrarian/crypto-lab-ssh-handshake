@@ -10,7 +10,7 @@
 
 const enc = new TextEncoder();
 
-function b64urlToBytes(s: string): Uint8Array {
+export function b64urlToBytes(s: string): Uint8Array {
 	const b64 = s.replace(/-/g, '+').replace(/_/g, '/');
 	const pad = b64.length % 4 ? '='.repeat(4 - (b64.length % 4)) : '';
 	const bin = atob(b64 + pad);
@@ -25,7 +25,7 @@ function bytesToB64(u: Uint8Array): string {
 	return btoa(s);
 }
 
-function wireString(data: string | Uint8Array): Uint8Array {
+export function wireString(data: string | Uint8Array): Uint8Array {
 	const bytes = typeof data === 'string' ? enc.encode(data) : data;
 	const out = new Uint8Array(4 + bytes.length);
 	new DataView(out.buffer).setUint32(0, bytes.length, false);
@@ -33,7 +33,30 @@ function wireString(data: string | Uint8Array): Uint8Array {
 	return out;
 }
 
-function concat(...parts: Uint8Array[]): Uint8Array {
+export function wireUint32(val: number): Uint8Array {
+	const out = new Uint8Array(4);
+	new DataView(out.buffer).setUint32(0, val, false);
+	return out;
+}
+
+export function wireMpint(buf: ArrayBuffer | Uint8Array): Uint8Array {
+	const u = new Uint8Array(buf);
+	// Trim leading zero bytes
+	let start = 0;
+	while (start < u.length && u[start] === 0) start++;
+	if (start === u.length) return wireString(new Uint8Array(0));
+	const trimmed = u.slice(start);
+	
+	// If the high bit of the first byte is set, prepend a zero byte.
+	if (trimmed[0] & 0x80) {
+		const out = new Uint8Array(trimmed.length + 1);
+		out.set(trimmed, 1);
+		return wireString(out);
+	}
+	return wireString(trimmed);
+}
+
+export function concat(...parts: Uint8Array[]): Uint8Array {
 	let total = 0;
 	for (const p of parts) total += p.length;
 	const out = new Uint8Array(total);
