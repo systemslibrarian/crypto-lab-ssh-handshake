@@ -5,3 +5,5 @@ dist
 test-results
 playwright-report
 .playwright
+# Planning / feedback notes kept locally, not in the published repo
+chat*.md
