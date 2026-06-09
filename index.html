@@ -1,0 +1,38 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <script>
+      (function () {
+        const saved = localStorage.getItem('theme');
+        document.documentElement.setAttribute('data-theme', saved ?? 'dark');
+      })();
+    </script>
+    <meta charset="UTF-8" />
+    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="dark light" />
+    <meta
+      name="description"
+      content="SSH Handshake & known_hosts — an interactive model of the SSH transport-layer handshake using real Web Crypto. Ephemeral X25519 key exchange (with ECDH P-256 fallback) authenticated by an Ed25519 host signature (with ECDSA P-256 fallback), plus the trust-on-first-use known_hosts flow that catches host-key changes."
+    />
+    <meta property="og:type" content="website" />
+    <meta property="og:title" content="SSH Handshake & known_hosts — crypto-lab" />
+    <meta
+      property="og:description"
+      content="Trust on first use — SSH's third trust model. Real ephemeral ECDH + Ed25519/ECDSA host signatures, the known_hosts pin, and the MITM scenarios it does and doesn't catch."
+    />
+    <meta property="og:url" content="https://systemslibrarian.github.io/crypto-lab-ssh-handshake/" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="SSH Handshake & known_hosts — crypto-lab" />
+    <meta
+      name="twitter:description"
+      content="SSH's trust model — no CA, no web of trust, just the host key you saw on first connection. Interactive in the browser."
+    />
+    <title>SSH Handshake & known_hosts — crypto-lab</title>
+  </head>
+  <body>
+    <a class="skip-link" href="#playground-heading">Skip to content</a>
+    <div id="app"></div>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>
