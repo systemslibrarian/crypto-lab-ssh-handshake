@@ -265,6 +265,114 @@
   word-break: break-all;
 }
 
+.known-hosts-file {
+  margin-top: 10px;
+  padding: 10px 12px;
+  border-radius: 14px;
+  border: 1px solid var(--line);
+  background: var(--panel);
+}
+
+.known-hosts-file > summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  color: var(--mono-block-fg);
+  list-style: none;
+  padding: 4px 0;
+}
+
+.known-hosts-file > summary::-webkit-details-marker {
+  display: none;
+}
+
+.known-hosts-file > summary::before {
+  content: '▸ ';
+  color: var(--accent);
+}
+
+.known-hosts-file[open] > summary::before {
+  content: '▾ ';
+}
+
+.kh-file {
+  margin: 8px 0 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: var(--mono-block-bg);
+  color: var(--mono-block-fg);
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  line-height: 1.55;
+  overflow-x: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.kh-hint {
+  margin: 8px 0 0;
+  font-family: var(--sans);
+  font-size: 0.84rem;
+  color: var(--metric-muted);
+  line-height: 1.5;
+}
+
+/* SSHFP card */
+.sshfp-card {
+  margin-top: 14px;
+}
+
+.sshfp-grid {
+  margin: 6px 0 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  column-gap: 14px;
+  row-gap: 6px;
+  font-family: var(--mono);
+  font-size: 0.88rem;
+}
+
+.sshfp-grid dt {
+  color: var(--ink-soft);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 0.76rem;
+}
+
+.sshfp-grid dd {
+  margin: 0;
+  color: var(--ink-strong);
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
+
+.sshfp-grid code.warn {
+  color: var(--warning-fg);
+}
+
+.sshfp-publish-row {
+  align-items: center;
+}
+
+.sshfp-dnssec-label {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+  font-size: 0.86rem;
+}
+
+.sshfp-dnssec-label input {
+  width: 18px;
+  height: 18px;
+}
+
+.ca-cert-h {
+  margin: 14px 0 4px;
+  font-size: 0.92rem;
+}
+
 /* SSH-style warning banners */
 .ssh-warning {
   padding: 14px 16px;
@@ -405,6 +513,69 @@ code {
 @media (max-width: 900px) {
   .footer-meta {
     grid-template-columns: 1fr;
+  }
+}
+
+/* Scope + citations */
+.scope-grid {
+  margin-top: 16px;
+}
+
+.scope-card .scope-list {
+  margin: 8px 0 0;
+  padding-left: 20px;
+  color: var(--ink-soft);
+  line-height: 1.6;
+}
+
+.scope-card .scope-list li + li {
+  margin-top: 6px;
+}
+
+.citation-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 12px;
+}
+
+.citation-item {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel-strong);
+}
+
+.citation-link {
+  font-family: var(--mono);
+  font-size: 0.92rem;
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+}
+
+.citation-link:hover {
+  text-decoration: underline;
+}
+
+.citation-link:focus-visible {
+  outline: 2px solid var(--accent-3);
+  outline-offset: 2px;
+}
+
+.citation-note {
+  margin: 4px 0 0;
+  color: var(--ink-soft);
+  font-size: 0.92rem;
+  line-height: 1.55;
+}
+
+@media (min-width: 720px) {
+  .citation-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 

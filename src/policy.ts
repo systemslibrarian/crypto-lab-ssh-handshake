@@ -163,6 +163,42 @@ function replaceLastDecisionStep(
 	return copy;
 }
 
+// Render a known_hosts entry that follows the OpenSSH format
+// `hostname keytype base64key` — the bits a learner can map straight to
+// `~/.ssh/known_hosts`. The key bytes are JWK-derived rather than the literal
+// SSH wire format; for an educational model the SHAPE is what matters.
+export function knownHostsLine(
+	hostName: string,
+	hostPubJwk: JsonWebKey,
+	sigAlgoName: string,
+): string {
+	const keytype = sshKeyType(sigAlgoName);
+	const material = ((hostPubJwk.x ?? '') + (hostPubJwk.y ?? '')) || '(no key material)';
+	return `${hostName} ${keytype} ${material}`;
+}
+
+export function sshKeyType(sigAlgoName: string): string {
+	if (sigAlgoName === 'Ed25519') return 'ssh-ed25519';
+	if (sigAlgoName === 'ECDSA P-256') return 'ecdsa-sha2-nistp256';
+	return 'ssh-unknown';
+}
+
+// ssh-keygen -F output — present-or-absent plus a realistic line if found.
+export function sshKeygenF(
+	client: SshClient,
+	hostName: string,
+	currentHostJwk: JsonWebKey | null,
+	sigAlgoName: string,
+): string {
+	const pin = findPin(client, hostName);
+	if (!pin) return `# Host ${hostName} not found in known_hosts.\n# (exit status 1)`;
+	if (!currentHostJwk) {
+		return `# Host ${hostName} found in known_hosts (line synthesized from pin):\n` +
+			`${hostName} ${sshKeyType(sigAlgoName)} ${pin}`;
+	}
+	return `# Host ${hostName} found in known_hosts:\n${knownHostsLine(hostName, currentHostJwk, sigAlgoName)}`;
+}
+
 export function explainMode(mode: StrictMode): string {
 	switch (mode) {
 		case 'yes':

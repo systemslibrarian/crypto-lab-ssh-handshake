@@ -18,14 +18,27 @@ import {
 	connectWithPolicy,
 	explainMode,
 	findPin,
+	knownHostsLine,
 	removePin,
+	sshKeygenF,
+	sshKeyType,
 	type StrictMode,
 	type PolicyConnectResult,
 } from './policy.ts';
 import { shortBytes, tapResponder, type Transcript } from './transcript.ts';
 import {
+	clearSshfp,
+	lookupSshfp,
+	poisonSshfp,
+	publishSshfp,
+	verifySshfp,
+} from './sshfp.ts';
+import { HostCA, verifyCert, caAlgo, type HostCert } from './ca.ts';
+import {
+	CITATIONS,
 	HANDSHAKE_CONCEPTS,
 	REAL_WORLD,
+	SCOPE,
 	THREE_TRUST_MODELS,
 	TOFU_LESSONS,
 } from './data.ts';
@@ -47,6 +60,9 @@ interface AppState {
 	server: SshServer | null;
 	client: SshClient;
 	mode: StrictMode;
+	ca: HostCA | null;
+	caTrusted: boolean;             // @cert-authority pin
+	currentCert: HostCert | null;   // cert signing this server's pubkey
 	lastResult: ConnectResult | null;
 	lastResultLabel: string;
 	lastTranscript: Transcript | null;
@@ -127,16 +143,22 @@ function renderSetupSection(state: AppState): HTMLElement {
 			<span id="start-status" class="ssh-status"></span>
 		</div>
 		<div id="host-display" class="ssh-host-display"></div>
+		<div id="sshfp-display" class="ssh-host-display"></div>
+		<div id="ca-display" class="ssh-host-display"></div>
 	`;
 
 	const startBtn = section.querySelector<HTMLButtonElement>('#start-btn')!;
 	const restartBtn = section.querySelector<HTMLButtonElement>('#restart-btn')!;
 	const status = section.querySelector<HTMLElement>('#start-status')!;
 	const host = section.querySelector<HTMLElement>('#host-display')!;
+	const sshfpDisplay = section.querySelector<HTMLElement>('#sshfp-display')!;
+	const caDisplay = section.querySelector<HTMLElement>('#ca-display')!;
 
 	function refresh(): void {
 		if (!state.server) {
 			host.innerHTML = `<p class="panel-copy ssh-empty">No server running yet. The handshake needs a host key — generate one to continue.</p>`;
+			sshfpDisplay.innerHTML = '';
+			caDisplay.innerHTML = '';
 			startBtn.hidden = false;
 			restartBtn.hidden = true;
 			return;
@@ -147,9 +169,55 @@ function renderSetupSection(state: AppState): HTMLElement {
 				<p class="host-card-label">Host identity</p>
 				<p class="host-card-name">${id.name}</p>
 				<p class="host-card-fp" aria-label="Host key fingerprint"><span class="fp-tag">${algoNames().sig}</span><code>${id.fingerprint}</code></p>
-				<p class="panel-copy">This is the server’s long-term identity. Every legitimate connection to <code>${id.name}</code> should present exactly this fingerprint.</p>
+				<p class="panel-copy">This is the server's long-term identity. Every legitimate connection to <code>${id.name}</code> should present exactly this fingerprint.</p>
 			</div>
 		`;
+		sshfpDisplay.innerHTML = renderSshfpCard(state);
+		const publishBtn = sshfpDisplay.querySelector<HTMLButtonElement>('#sshfp-publish');
+		const sshfpRemoveBtn = sshfpDisplay.querySelector<HTMLButtonElement>('#sshfp-remove');
+		publishBtn?.addEventListener('click', () => {
+			if (!state.server) return;
+			const dnssec = (sshfpDisplay.querySelector<HTMLInputElement>('#sshfp-dnssec'))?.checked ?? true;
+			publishSshfp(HOST_NAME, state.server.publicIdentity().fingerprint, dnssec);
+			state.rerenderSetup();
+			state.rerenderConnect();
+		});
+		sshfpRemoveBtn?.addEventListener('click', () => {
+			clearSshfp();
+			state.rerenderSetup();
+			state.rerenderConnect();
+		});
+
+		caDisplay.innerHTML = renderCaCard(state);
+		caDisplay.querySelector<HTMLButtonElement>('#ca-start')?.addEventListener('click', () => {
+			void (async () => {
+				state.ca = await HostCA.create('Acme Internal CA');
+				state.caTrusted = false;
+				state.currentCert = null;
+				state.rerenderSetup();
+				state.rerenderConnect();
+			})();
+		});
+		caDisplay.querySelector<HTMLButtonElement>('#ca-trust')?.addEventListener('click', () => {
+			state.caTrusted = !state.caTrusted;
+			state.rerenderSetup();
+			state.rerenderConnect();
+		});
+		caDisplay.querySelector<HTMLButtonElement>('#ca-sign')?.addEventListener('click', () => {
+			void (async () => {
+				if (!state.ca || !state.server) return;
+				state.currentCert = await state.ca.sign(HOST_NAME, state.server.publicIdentity().hostPubJwk);
+				state.rerenderSetup();
+				state.rerenderConnect();
+			})();
+		});
+		caDisplay.querySelector<HTMLButtonElement>('#ca-clear')?.addEventListener('click', () => {
+			state.ca = null;
+			state.caTrusted = false;
+			state.currentCert = null;
+			state.rerenderSetup();
+			state.rerenderConnect();
+		});
 		startBtn.hidden = true;
 		restartBtn.hidden = false;
 	}
@@ -326,6 +394,7 @@ function renderConnectSection(state: AppState): HTMLElement {
 		const acceptBtn = pendingBox.querySelector<HTMLButtonElement>('#pending-accept');
 		const rejectBtn = pendingBox.querySelector<HTMLButtonElement>('#pending-reject');
 		const verifyBtn = pendingBox.querySelector<HTMLButtonElement>('#pending-verify');
+		const sshfpBtn = pendingBox.querySelector<HTMLButtonElement>('#pending-sshfp');
 		acceptBtn?.addEventListener('click', () => {
 			state.pending?.accept();
 			completePending(true, 'Fingerprint accepted — host pinned in known_hosts.');
@@ -337,6 +406,21 @@ function renderConnectSection(state: AppState): HTMLElement {
 		verifyBtn?.addEventListener('click', () => {
 			state.pending?.accept();
 			completePending(true, 'Fingerprint matches the out-of-band reference — host pinned. (Safe TOFU bootstrap.)');
+		});
+		sshfpBtn?.addEventListener('click', () => {
+			const fp = state.pending?.presentedFingerprint;
+			if (!fp) return;
+			const verdict = verifySshfp(HOST_NAME, fp);
+			if (verdict.kind === 'match') {
+				state.pending?.accept();
+				completePending(true, 'SSHFP+DNSSEC match — host pinned via VerifyHostKeyDNS. Real bootstrap of trust.');
+			} else if (verdict.kind === 'match-unsigned') {
+				state.pending?.accept();
+				completePending(true, 'SSHFP matched but without DNSSEC — pinned anyway. WARNING: a DNS-spoofing attacker could have produced this record.');
+			} else {
+				state.pending?.reject();
+				completePending(false, 'SSHFP verdict was not a clean match — refusing the connection.');
+			}
 		});
 	}
 
@@ -382,6 +466,50 @@ function renderConnectSection(state: AppState): HTMLElement {
 			try {
 				const pinnedBefore = state.client.knownHosts.has(HOST_NAME);
 				const tap = tapResponder(HOST_NAME, state.server, algoNames());
+
+				// CA path takes priority over TOFU: if the host presents a cert AND
+				// the client trusts the issuing CA, the cert verification IS the
+				// trust decision — known_hosts is bypassed entirely.
+				if (state.currentCert && state.caTrusted && state.ca && state.server) {
+					// Run the engine handshake to get sig/sharedSecret confirmation,
+					// but DON'T use the engine's TOFU decision — we'll override.
+					// Use a fresh sub-client so the engine's pin logic doesn't fire.
+					const subClient = new SshClient();
+					const engineResult = await subClient.connect(HOST_NAME, tap);
+					const verdict = await verifyCert(
+						state.currentCert,
+						state.ca.publicIdentity().pubJwk,
+						HOST_NAME,
+						state.server.publicIdentity().hostPubJwk,
+					);
+					state.lastResult = {
+						...engineResult,
+						hostKeyDecision: verdict.valid ? 'matches-known' : 'CHANGED-REJECTED',
+						connected: verdict.valid && engineResult.signatureValid && engineResult.sharedAgrees,
+						summary: verdict.valid
+							? `Connected via @cert-authority. ${verdict.reason}`
+							: `REJECTED — cert verification failed: ${verdict.reason}`,
+						steps: [
+							...engineResult.steps.slice(0, -1),
+							{
+								label: verdict.valid ? '@cert-authority' : '@cert-authority (rejected)',
+								detail: verdict.reason,
+								ok: verdict.valid,
+							},
+						],
+					};
+					state.lastTranscript = tap.transcript;
+					state.lastResultLabel = `Cert-authority (mode=${state.mode})`;
+					state.pending = null;
+					state.pendingLabel = '';
+					status.textContent = state.lastResult.connected
+						? 'Connected via @cert-authority. TOFU was not consulted.'
+						: state.lastResult.summary;
+					state.rerenderConnect();
+					state.rerenderScenarios();
+					return;
+				}
+
 				const policyResult = await connectWithPolicy(state.client, HOST_NAME, tap, state.mode);
 				state.lastResult = policyResult.result;
 				state.lastTranscript = tap.transcript;
@@ -433,6 +561,21 @@ function renderConnectSection(state: AppState): HTMLElement {
 
 function renderPendingPrompt(pending: NonNullable<PolicyConnectResult['pendingFirstContact']>, label: string): string {
 	const fp = pending.presentedFingerprint;
+	const sshfp = lookupSshfp(HOST_NAME);
+	let sshfpAction = '';
+	let sshfpHint = '';
+	if (sshfp) {
+		const verdict = verifySshfp(HOST_NAME, fp);
+		if (verdict.kind === 'match') {
+			sshfpAction = `<button id="pending-sshfp" class="tab-button" type="button" title="VerifyHostKeyDNS=yes — DNSSEC-signed SSHFP record agrees with the presented fingerprint">Verify via SSHFP (DNSSEC ✓) — accept automatically</button>`;
+			sshfpHint = `<p class="ssh-warning-body">A DNSSEC-signed SSHFP record for ${HOST_NAME} is on file and matches the presented fingerprint — safe to accept on first contact.</p>`;
+		} else if (verdict.kind === 'match-unsigned') {
+			sshfpAction = `<button id="pending-sshfp" class="tab-button" type="button" title="Matches an SSHFP record served without DNSSEC — the record itself is forgeable">Verify via SSHFP (no DNSSEC — risky) — accept</button>`;
+			sshfpHint = `<p class="ssh-warning-body">An SSHFP record matches, but it was served WITHOUT DNSSEC. A DNS-spoofing attacker can serve their own fingerprint here. Not a real verification.</p>`;
+		} else if (verdict.kind === 'mismatch') {
+			sshfpHint = `<p class="ssh-warning-body"><strong>SSHFP MISMATCH:</strong> DNS publishes <code>${verdict.record.fingerprint}</code> for ${HOST_NAME}, but the server presented <code>${verdict.presented}</code>. Either the server rotated keys without updating DNS, or this is an attack. Reject.</p>`;
+		}
+	}
 	return `
 		<div class="ssh-warning ssh-warning--pending" role="alert">
 			<p class="ssh-warning-title">${label}: The authenticity of host "${HOST_NAME}" can't be established.</p>
@@ -441,13 +584,84 @@ function renderPendingPrompt(pending: NonNullable<PolicyConnectResult['pendingFi
 				Are you sure you want to continue connecting (yes/no/[verify])?
 				This is what OpenSSH prints — TOFU at this moment is a leap of faith.
 			</p>
+			${sshfpHint}
 			<div class="pending-actions">
 				<button id="pending-accept" class="tab-button" type="button">Accept (yes) — pin and connect</button>
 				<button id="pending-reject" class="tab-button" type="button">Reject (no) — refuse the connection</button>
 				<button id="pending-verify" class="tab-button" type="button" title="Simulates: the fingerprint matches what your operator told you out of band">Verify out of band ✓ — fingerprint matches my reference</button>
+				${sshfpAction}
 			</div>
 		</div>
 	`;
+}
+
+function renderCaCard(state: AppState): string {
+	if (!state.ca) {
+		return `
+			<div class="host-card sshfp-card">
+				<p class="host-card-label">OpenSSH @cert-authority (not configured)</p>
+				<p class="panel-copy">Start a host CA to demonstrate the certificate-based trust path. The CA signs the host's pubkey, the client trusts the CA via <code>@cert-authority</code>, and TOFU is skipped entirely. This is how organizations run SSH fleets without exhausting their users on host-key warnings.</p>
+				<div class="pending-actions">
+					<button id="ca-start" class="tab-button" type="button">Start a host CA</button>
+				</div>
+			</div>
+		`;
+	}
+	const id = state.ca.publicIdentity();
+	const certInfo = state.currentCert
+		? `
+			<dl class="sshfp-grid">
+				<dt>principal</dt><dd><code>${state.currentCert.hostName}</code></dd>
+				<dt>issuer</dt><dd><code>${state.currentCert.issuer}</code></dd>
+				<dt>issued</dt><dd><code>${state.currentCert.issuedAt}</code></dd>
+				<dt>expires</dt><dd><code>${state.currentCert.validUntil}</code></dd>
+				<dt>signature</dt><dd><code>${shortBytes(state.currentCert.signature, 24, 12)}</code></dd>
+			</dl>
+		`
+		: '<p class="panel-copy ssh-empty">No certificate signed yet.</p>';
+	return `
+		<div class="host-card sshfp-card">
+			<p class="host-card-label">OpenSSH @cert-authority CA</p>
+			<p class="host-card-name">${id.name}</p>
+			<p class="host-card-fp"><span class="fp-tag">${caAlgo()}</span><code>${id.fingerprint}</code></p>
+			<p class="panel-copy">CA trust state: ${state.caTrusted ? '<strong>trusted (@cert-authority pinned)</strong>' : '<strong>not yet trusted</strong>'}.</p>
+			<h4 class="ssh-section-h ca-cert-h">Host certificate</h4>
+			${certInfo}
+			<div class="pending-actions">
+				<button id="ca-trust" class="tab-button" type="button">${state.caTrusted ? 'Untrust CA' : 'Trust CA (@cert-authority)'}</button>
+				<button id="ca-sign" class="tab-button" type="button">Sign host pubkey with CA</button>
+				<button id="ca-clear" class="tab-button" type="button">Forget CA</button>
+			</div>
+		</div>
+	`;
+}
+
+function renderSshfpCard(_state: AppState): string {
+	const rec = lookupSshfp(HOST_NAME);
+	const body = rec
+		? `
+			<p class="host-card-label">SSHFP DNS record (published)</p>
+			<dl class="sshfp-grid">
+				<dt>name</dt><dd><code>${rec.hostName}</code></dd>
+				<dt>fingerprint</dt><dd><code>${rec.fingerprint}</code></dd>
+				<dt>signed</dt><dd>${rec.dnssecSigned ? '<code>DNSSEC ✓ trustworthy channel</code>' : '<code class="warn">unsigned — DNS-spoofable</code>'}</dd>
+			</dl>
+			<div class="pending-actions">
+				<button id="sshfp-remove" class="tab-button" type="button">Remove SSHFP record</button>
+			</div>
+		`
+		: `
+			<p class="host-card-label">SSHFP DNS record (not published)</p>
+			<p class="panel-copy">Publish the host fingerprint as an SSHFP DNS record (RFC 4255) so that clients with <code>VerifyHostKeyDNS=yes</code> can skip the first-contact prompt. With DNSSEC, this is a real bootstrap of trust. Without DNSSEC, it is the same gamble as TOFU.</p>
+			<div class="pending-actions sshfp-publish-row">
+				<label class="sshfp-dnssec-label">
+					<input type="checkbox" id="sshfp-dnssec" checked />
+					<span>publish with DNSSEC</span>
+				</label>
+				<button id="sshfp-publish" class="tab-button" type="button">Publish SSHFP record</button>
+			</div>
+		`;
+	return `<div class="host-card sshfp-card">${body}</div>`;
 }
 
 function renderTranscript(transcript: Transcript | null, result: ConnectResult | null): string {
@@ -547,14 +761,42 @@ function renderKnownHosts(state: AppState): HTMLElement {
 		`;
 		return wrap;
 	}
+	const sig = algoNames().sig;
+	const currentJwk = state.lastTranscript?.hostPubJwk ?? null;
 	const rows = Array.from(state.client.knownHosts.entries())
 		.map(([name, fp]) => `<li class="pin-row"><span class="pin-host">${name}</span><code class="pin-fp">${fp}</code></li>`)
 		.join('');
-	wrap.innerHTML = `
-		<p class="hero-metric-label">known_hosts</p>
-		<ul class="pin-list">${rows}</ul>
-	`;
-	return wrap;
+	const file = Array.from(state.client.knownHosts.entries())
+		.map(([name]) => {
+			// Use the captured host pubkey if it matches this name; otherwise
+			// fall back to a synthesized line showing the fingerprint.
+			if (currentJwk && name === HOST_NAME) {
+				return knownHostsLine(name, currentJwk, sig);
+			}
+			return `${name} ${sshKeyType(sig)} <pinned ${state.client.knownHosts.get(name)}>`;
+		})
+		.join('\n');
+	const grepOutput = sshKeygenF(state.client, HOST_NAME, currentJwk, sig);
+	return Object.assign(wrap, {
+		innerHTML: `
+			<p class="hero-metric-label">known_hosts (in memory)</p>
+			<ul class="pin-list">${rows}</ul>
+			<details class="known-hosts-file">
+				<summary>~/.ssh/known_hosts (file format)</summary>
+				<pre class="kh-file"><code>${file}</code></pre>
+				<p class="kh-hint">Real OpenSSH wraps the base64 key bytes in a small wire-format header per key type; this demo shows the JWK material to keep the shape readable. Real files may also use HashKnownHosts (hashed hostnames starting with <code>|1|</code>).</p>
+				<p class="kh-hint">A typical sshd offers ed25519, ecdsa, AND rsa host keys — your known_hosts ends up with one line per algorithm. Modelling all three at once requires a sshd that runs multiple algorithms; this demo runs one at a time and labels which.</p>
+			</details>
+			<details class="known-hosts-file">
+				<summary>ssh-keygen -F ${HOST_NAME}</summary>
+				<pre class="kh-file"><code>${escapeHtml(grepOutput)}</code></pre>
+			</details>
+		`,
+	});
+}
+
+function escapeHtml(s: string): string {
+	return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 }
 
 function decisionAccent(d: ConnectResult['hostKeyDecision']): string {
@@ -652,12 +894,16 @@ function renderScenariosSection(state: AppState): HTMLElement {
 			return;
 		}
 		const pinned = state.client.knownHosts.has(HOST_NAME);
+		const caReady = !!state.ca && state.caTrusted && !!state.currentCert;
 		buttons.innerHTML = `
 			<button id="scn-mitm-after" class="tab-button" type="button" ${pinned ? '' : 'disabled'}>Attack · MITM after pinning ${pinned ? '' : '— connect once first'}</button>
 			<button id="scn-mitm-first" class="tab-button" type="button">Attack · MITM on first contact (fresh client)</button>
 			<button id="scn-tamper" class="tab-button" type="button">Attack · Tampered host signature</button>
+			<button id="scn-dns-spoof" class="tab-button" type="button">Attack · DNS spoof of SSHFP without DNSSEC</button>
+			<button id="scn-rogue-ca" class="tab-button" type="button" ${caReady ? '' : 'disabled'}>Attack · Rogue CA signs the attacker's host ${caReady ? '' : '— trust a CA and sign first'}</button>
 			<button id="scn-rotate-planned" class="tab-button" type="button" ${pinned ? '' : 'disabled'}>Operations · Planned key rotation (maintenance)</button>
 			<button id="scn-rotate-emergency" class="tab-button" type="button" ${pinned ? '' : 'disabled'}>Operations · Emergency rotation (compromise response)</button>
+			<button id="scn-rotate-ca" class="tab-button" type="button" ${caReady ? '' : 'disabled'}>Operations · Rotate host under same CA (no warning) ${caReady ? '' : '— trust a CA and sign first'}</button>
 		`;
 
 		section.querySelector<HTMLButtonElement>('#scn-mitm-after')!.addEventListener('click', () => {
@@ -669,11 +915,20 @@ function renderScenariosSection(state: AppState): HTMLElement {
 		section.querySelector<HTMLButtonElement>('#scn-tamper')!.addEventListener('click', () => {
 			void scenarioTamper(state, output);
 		});
+		section.querySelector<HTMLButtonElement>('#scn-dns-spoof')!.addEventListener('click', () => {
+			void scenarioDnsSpoof(state, output);
+		});
 		section.querySelector<HTMLButtonElement>('#scn-rotate-planned')!.addEventListener('click', () => {
 			void scenarioRotatePlanned(state, output);
 		});
 		section.querySelector<HTMLButtonElement>('#scn-rotate-emergency')!.addEventListener('click', () => {
 			void scenarioRotateEmergency(state, output);
+		});
+		section.querySelector<HTMLButtonElement>('#scn-rogue-ca')!.addEventListener('click', () => {
+			void scenarioRogueCa(state, output);
+		});
+		section.querySelector<HTMLButtonElement>('#scn-rotate-ca')!.addEventListener('click', () => {
+			void scenarioRotateUnderCa(state, output);
 		});
 	}
 
@@ -740,6 +995,144 @@ async function scenarioTamper(state: AppState, output: HTMLElement): Promise<voi
 		!result.signatureValid
 			? 'Tampered host signature: the client recomputed the exchange hash, the signature did not verify, connection refused. The host could not prove key ownership.'
 			: 'Tampered host signature unexpectedly verified — engine bug.',
+	);
+}
+
+async function scenarioDnsSpoof(state: AppState, output: HTMLElement): Promise<void> {
+	// An attacker who controls DNS (no DNSSEC) publishes their OWN host
+	// fingerprint at the host's name. A fresh client that "verifies via SSHFP"
+	// matches the attacker's record and pins the attacker's key.
+	const attacker = await makeMitm(HOST_NAME);
+	poisonSshfp(HOST_NAME, attacker.identity.fingerprint);
+
+	const freshClient = new SshClient();
+	const tap = tapResponder(HOST_NAME, attacker, algoNames());
+	const policyResult = await connectWithPolicy(freshClient, HOST_NAME, tap, 'ask');
+	let summary: ConnectResult;
+	let pinnedFp: string | undefined;
+	if (policyResult.pendingFirstContact) {
+		// Simulate the user clicking "Verify via SSHFP" and getting a match.
+		const verdict = verifySshfp(HOST_NAME, policyResult.pendingFirstContact.presentedFingerprint);
+		if (verdict.kind === 'match' || verdict.kind === 'match-unsigned') {
+			policyResult.pendingFirstContact.accept();
+			pinnedFp = freshClient.knownHosts.get(HOST_NAME);
+			summary = {
+				...policyResult.result,
+				hostKeyDecision: 'tofu-pinned',
+				connected: policyResult.result.signatureValid,
+				summary: verdict.kind === 'match'
+					? 'Connected — SSHFP matched (DNSSEC ✓). But this is a SPOOFED record.'
+					: 'Connected — SSHFP matched without DNSSEC. The user accepted the attacker’s key thinking it was verified.',
+			};
+		} else {
+			policyResult.pendingFirstContact.reject();
+			summary = policyResult.result;
+		}
+	} else {
+		summary = policyResult.result;
+	}
+	output.innerHTML = renderScenarioResult(summary, 'Attack · DNS spoof of SSHFP without DNSSEC', attacker.identity)
+		+ `<div class="ssh-warning ssh-warning--bad" role="alert">
+			<p class="ssh-warning-title">The lesson</p>
+			<p class="ssh-warning-body">
+				SSHFP without DNSSEC is not real verification. The attacker controlled the DNS path, so when the client looked up the "expected" fingerprint, it got back the attacker's. The client pinned <code>${pinnedFp ?? '(none)'}</code> — the attacker's key — and now believes that's the real host. <strong>If you use VerifyHostKeyDNS, you MUST also use DNSSEC end-to-end.</strong>
+			</p>
+		</div>`
+		+ renderTranscript(tap.transcript, summary);
+	state.logScenario(
+		'DNS spoof: an unsigned SSHFP record served by an attacker passes the "out of band" check and the client pins the attacker. DNSSEC is the missing ingredient.',
+	);
+	// Clean up the poisoned record so the rest of the demo isn't broken.
+	clearSshfp();
+	state.rerenderSetup();
+	state.rerenderConnect();
+}
+
+async function scenarioRotateUnderCa(state: AppState, output: HTMLElement): Promise<void> {
+	if (!state.ca || !state.caTrusted) {
+		output.innerHTML = `<p class="panel-copy ssh-empty">Start a CA and trust it (section 1) first.</p>`;
+		return;
+	}
+	// Rotate the host key, re-sign with the SAME CA, then connect.
+	state.server = await SshServer.create(HOST_NAME);
+	state.currentCert = await state.ca.sign(HOST_NAME, state.server.publicIdentity().hostPubJwk);
+	const tap = tapResponder(HOST_NAME, state.server, algoNames());
+	const subClient = new SshClient();
+	const engineResult = await subClient.connect(HOST_NAME, tap);
+	const verdict = await verifyCert(
+		state.currentCert,
+		state.ca.publicIdentity().pubJwk,
+		HOST_NAME,
+		state.server.publicIdentity().hostPubJwk,
+	);
+	const result: ConnectResult = {
+		...engineResult,
+		hostKeyDecision: verdict.valid ? 'matches-known' : 'CHANGED-REJECTED',
+		connected: verdict.valid && engineResult.signatureValid,
+		summary: verdict.valid
+			? 'Connected via @cert-authority despite the host-key rotation. No TOFU warning fired — the CA covered it.'
+			: 'REJECTED — even with the CA path, cert verification failed.',
+		steps: [
+			...engineResult.steps.slice(0, -1),
+			{
+				label: '@cert-authority',
+				detail: verdict.reason,
+				ok: verdict.valid,
+			},
+		],
+	};
+	output.innerHTML = renderScenarioResult(result, 'Operations · Rotate host under same CA (no warning)', state.server.publicIdentity())
+		+ `<div class="ssh-warning ssh-warning--pending recovery-card" role="status">
+			<p class="ssh-warning-title">Why no warning?</p>
+			<p class="ssh-warning-body">The client never pinned the host key directly. It pinned the CA. As long as a new CA-signed cert names this host and binds the new pubkey, the rotation is invisible to users — exactly how OpenSSH host certificates avoid the recurring TOFU pain in fleets.</p>
+		</div>`
+		+ renderTranscript(tap.transcript, result);
+	state.logScenario(
+		'CA rotation: re-signed the rotated host key under the same trusted CA — no host-key-changed warning. This is the value @cert-authority delivers.',
+	);
+	state.rerenderSetup();
+	state.rerenderConnect();
+}
+
+async function scenarioRogueCa(state: AppState, output: HTMLElement): Promise<void> {
+	if (!state.ca || !state.caTrusted) {
+		output.innerHTML = `<p class="panel-copy ssh-empty">Trust a CA and sign the host first.</p>`;
+		return;
+	}
+	// A different CA signs an attacker's host key. The client only trusts the
+	// real CA, so the rogue cert must NOT verify — even though both are
+	// "certificates".
+	const rogueCa = await HostCA.create('Rogue CA');
+	const attacker = await makeMitm(HOST_NAME);
+	const rogueCert = await rogueCa.sign(HOST_NAME, attacker.identity.hostPubJwk);
+	const tap = tapResponder(HOST_NAME, attacker, algoNames());
+	const subClient = new SshClient();
+	const engineResult = await subClient.connect(HOST_NAME, tap);
+	// The client checks the cert against the TRUSTED CA's pubkey (not the rogue one).
+	const verdict = await verifyCert(
+		rogueCert,
+		state.ca.publicIdentity().pubJwk,
+		HOST_NAME,
+		attacker.identity.hostPubJwk,
+	);
+	const result: ConnectResult = {
+		...engineResult,
+		hostKeyDecision: 'CHANGED-REJECTED',
+		connected: false,
+		summary: 'REJECTED — rogue CA cert does not verify under the trusted CA. The attacker can mint certs but not under your trust anchor.',
+		steps: [
+			...engineResult.steps.slice(0, -1),
+			{
+				label: '@cert-authority (rejected)',
+				detail: verdict.reason,
+				ok: false,
+			},
+		],
+	};
+	output.innerHTML = renderScenarioResult(result, 'Attack · Rogue CA signs the attacker\'s host', attacker.identity)
+		+ renderTranscript(tap.transcript, result);
+	state.logScenario(
+		'Rogue CA: a different CA signed the attacker\'s host. The cert is well-formed but the client\'s @cert-authority list does not include the rogue CA — rejected.',
 	);
 }
 
@@ -925,6 +1318,46 @@ function renderRealWorldSection(): HTMLElement {
 	return section;
 }
 
+// ---------- 6.5 Scope + citations -------------------------------------------
+
+function renderScopeSection(): HTMLElement {
+	const section = el('section', 'lab-section');
+	section.id = 'scope';
+	section.setAttribute('aria-labelledby', 'scope-heading');
+
+	const scopeCards = SCOPE.map(
+		(s) => `
+		<div class="panel-card scope-card">
+			<h3>${s.heading}</h3>
+			<ul class="scope-list">${s.bullets.map((b) => `<li>${b}</li>`).join('')}</ul>
+		</div>
+	`,
+	).join('');
+
+	const citationItems = CITATIONS.map(
+		(c) => `
+		<li class="citation-item">
+			<a class="citation-link" href="${c.url}" target="_blank" rel="noopener noreferrer">${c.label}</a>
+			<p class="citation-note">${c.note}</p>
+		</li>
+	`,
+	).join('');
+
+	section.innerHTML = `
+		<div class="section-heading-row">
+			<div>
+				<p class="section-kicker">Section · 6</p>
+				<h2 id="scope-heading">Scope &amp; provenance</h2>
+				<p class="panel-copy">What the demo claims to model, what it leaves out, and where to read the authoritative versions. Every claim above this section should map to one of the references below.</p>
+			</div>
+		</div>
+		<div class="reuse-grid scope-grid">${scopeCards}</div>
+		<h3 class="ssh-section-h">References</h3>
+		<ul class="citation-list">${citationItems}</ul>
+	`;
+	return section;
+}
+
 // ---------- 7. Footer (scripture) -------------------------------------------
 
 function renderFooter(): HTMLElement {
@@ -953,6 +1386,9 @@ export function mountApp(root: HTMLDivElement): void {
 		server: null,
 		client: new SshClient(),
 		mode: 'ask',
+		ca: null,
+		caTrusted: false,
+		currentCert: null,
 		lastResult: null,
 		lastResultLabel: '',
 		lastTranscript: null,
@@ -973,6 +1409,7 @@ export function mountApp(root: HTMLDivElement): void {
 	shell.appendChild(renderScenariosSection(state));
 	shell.appendChild(renderConceptsSection());
 	shell.appendChild(renderRealWorldSection());
+	shell.appendChild(renderScopeSection());
 	shell.appendChild(renderFooter());
 
 	// Delegated handler for transcript "Copy as JSON" buttons.

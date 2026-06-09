@@ -114,6 +114,96 @@ export const TOFU_LESSONS: LessonCard[] = [
 	},
 ];
 
+export interface ScopeCard {
+	heading: string;
+	bullets: string[];
+}
+
+// Honest scope panel: what this demo models faithfully and what it leaves
+// out. Repeated in the UI rather than buried in the README.
+export const SCOPE: ScopeCard[] = [
+	{
+		heading: 'What this models faithfully',
+		bullets: [
+			'Long-term host key generation, signing, and verification (real Ed25519, falling back to ECDSA P-256).',
+			'Per-connection ephemeral ECDH key agreement (real X25519, falling back to ECDH P-256).',
+			'An exchange hash H over host name, host pubkey, both ephemeral pubkeys, and the shared secret.',
+			'Host signature over H — the proof of key ownership.',
+			'known_hosts pin lookup, change detection, and the recovery flow (ssh-keygen -R).',
+			'StrictHostKeyChecking modes yes / ask / accept-new / no, including OpenSSH-style first-contact prompt.',
+			'Trust on first use and its honest first-contact limitation.',
+		],
+	},
+	{
+		heading: 'What this deliberately does NOT model',
+		bullets: [
+			'The SSH binary packet protocol — messages here are JSON, not RFC 4253 wire frames.',
+			'Algorithm negotiation — the engine picks one KEX + one SIG algorithm at init and uses them throughout.',
+			'User authentication — there are no passwords, no public-key auth, no Kerberos.',
+			'SSH channels, port forwarding, sftp, scp — only the transport-layer handshake.',
+			'Re-keying mid-session, compression, MAC negotiation, and cipher selection.',
+			'OpenSSH host certificates and SSHFP / DNSSEC bootstrap (modelled in later sections, not in the core engine).',
+		],
+	},
+];
+
+export interface Citation {
+	label: string;
+	url: string;
+	note: string;
+}
+
+// Provenance: where the model's claims come from. Linking the demo to
+// authoritative sources is what separates "neat toy" from "credible
+// teaching aid".
+export const CITATIONS: Citation[] = [
+	{
+		label: 'RFC 4251 — SSH Protocol Architecture',
+		url: 'https://www.rfc-editor.org/rfc/rfc4251',
+		note: 'Defines the three layers (transport / userauth / connection) and the trust model.',
+	},
+	{
+		label: 'RFC 4253 — SSH Transport Layer',
+		url: 'https://www.rfc-editor.org/rfc/rfc4253',
+		note: 'The KEX, the exchange hash H, the host signature, and the server identification string.',
+	},
+	{
+		label: 'RFC 4255 — SSHFP DNS Records',
+		url: 'https://www.rfc-editor.org/rfc/rfc4255',
+		note: 'Publish the host key fingerprint in DNS (with DNSSEC) to bootstrap first-contact trust.',
+	},
+	{
+		label: 'RFC 5656 — ECC Algorithms for SSH',
+		url: 'https://www.rfc-editor.org/rfc/rfc5656',
+		note: 'Adds ECDH / ECDSA on NIST curves, including the P-256 fallback this demo uses.',
+	},
+	{
+		label: 'draft-josefsson-ntruprime-ssh — modern curves',
+		url: 'https://datatracker.ietf.org/doc/draft-josefsson-ntruprime-ssh/',
+		note: 'Reference point for X25519 and Ed25519 use in SSH, the algorithms this demo prefers.',
+	},
+	{
+		label: 'OpenSSH PROTOCOL.certkeys — host certificates',
+		url: 'https://github.com/openssh/openssh-portable/blob/master/PROTOCOL.certkeys',
+		note: 'The @cert-authority mechanism that turns SSH host trust into a small PKI when needed.',
+	},
+	{
+		label: 'man 5 ssh_config — StrictHostKeyChecking',
+		url: 'https://man.openbsd.org/ssh_config.5#StrictHostKeyChecking',
+		note: 'Authoritative docs for the yes / ask / accept-new / off modes the demo selector exposes.',
+	},
+	{
+		label: 'man 1 ssh-keygen — fingerprint, -F, -R',
+		url: 'https://man.openbsd.org/ssh-keygen.1',
+		note: 'Lookup and removal of known_hosts entries — what the demo buttons mimic.',
+	},
+	{
+		label: 'man 8 sshd — host keys, multiple algorithms per host',
+		url: 'https://man.openbsd.org/sshd.8',
+		note: 'How real sshd holds an ed25519, ecdsa, and (legacy) rsa host key all under one name.',
+	},
+];
+
 export interface RealWorldCard {
 	title: string;
 	body: string;
