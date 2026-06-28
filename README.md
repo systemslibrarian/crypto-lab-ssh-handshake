@@ -16,9 +16,44 @@ An interactive model of the **SSH transport-layer handshake** and the **`known_h
 
 ## Live Demo
 
-[**https://systemslibrarian.github.io/crypto-lab-ssh-handshake/**](https://systemslibrarian.github.io/crypto-lab-ssh-handshake/)
+**[systemslibrarian.github.io/crypto-lab-ssh-handshake](https://systemslibrarian.github.io/crypto-lab-ssh-handshake/)**
 
-The page walks through six sections.
+The page walks through six sections: starting a server (which generates a real host keypair in the browser and shows its `SHA256:` fingerprint, with optional SSHFP-DNS and host-CA trust bootstrap), connecting (running the full handshake under a `StrictHostKeyChecking` selector with a complete transcript inspector), an eight-scenario "break it and recover" lab covering MITM, tampered signatures, DNS spoofing, rogue CAs, and key rotation, a three-trust-models comparison, an "in the real world" reference, and a scope/provenance section. The URL accepts `?scenario=<id>` for deep links — e.g. `?scenario=mitm-after`.
+
+## What Can Go Wrong
+
+- **TOFU does not protect first contact** — an active man-in-the-middle on the very first connection is pinned as if legitimate; trust-on-first-use only detects *changes* afterward.
+- **Ignoring `REMOTE HOST IDENTIFICATION HAS CHANGED!`** — dismissing the known_hosts warning, or reflexively removing the pin, discards the one signal that distinguishes a planned key rotation from an attack.
+- **`StrictHostKeyChecking no`** — blindly trusting whatever responds disables change detection entirely and accepts any impostor.
+- **SSHFP without DNSSEC** — verifying a fingerprint via an unsigned DNS record can itself be spoofed, so the "out-of-band" check lies.
+- **Accepting a fingerprint without real out-of-band verification** — clicking through the `ask` prompt without comparing the fingerprint through a trusted channel defeats the purpose of the prompt.
+
+## Real-World Usage
+
+- **OpenSSH `known_hosts`** — every SSH client pins host keys on first connection and warns on change, exactly the TOFU flow modeled here.
+- **Server and infrastructure administration** — interactive shells, configuration management, and automation authenticate hosts via these host keys.
+- **Git over SSH** — pushing and pulling from GitHub, GitLab, and self-hosted servers relies on SSH host-key verification.
+- **SSHFP + DNSSEC** — publishing host fingerprints in signed DNS lets clients bootstrap trust without a prior connection (RFC 4255).
+- **OpenSSH certificate authorities** — `@cert-authority` lets an organization sign host keys so clients trust a CA instead of pinning every host.
+
+## How to Run Locally
+
+```bash
+git clone https://github.com/systemslibrarian/crypto-lab-ssh-handshake
+cd crypto-lab-ssh-handshake
+npm install
+npm run dev
+```
+
+## Related Demos
+
+- [crypto-lab-pki-chain](https://systemslibrarian.github.io/crypto-lab-pki-chain/) — hierarchical X.509 CA trust, the centralized counterpart to SSH's TOFU model.
+- [crypto-lab-web-of-trust](https://systemslibrarian.github.io/crypto-lab-web-of-trust/) — PGP/OpenPGP decentralized trust graphs, the third trust model SSH is compared against.
+- [crypto-lab-noise-pipe](https://systemslibrarian.github.io/crypto-lab-noise-pipe/) — the Noise/WireGuard handshake patterns that share SSH's ephemeral-KEX shape.
+- [crypto-lab-ed25519-forge](https://systemslibrarian.github.io/crypto-lab-ed25519-forge/) — Ed25519/EdDSA signatures, the algorithm signing the SSH exchange hash.
+- [crypto-lab-x3dh-wire](https://systemslibrarian.github.io/crypto-lab-x3dh-wire/) — X3DH ephemeral key agreement from the Signal protocol.
+
+## Walkthrough
 
 * **Start the server** generates a real host keypair in your browser and shows its `SHA256:` fingerprint. Two optional trust-bootstrap mechanisms also live here: publish an **SSHFP DNS record** (with a DNSSEC toggle, RFC 4255) and start an **OpenSSH host CA** that can sign the host's pubkey so clients can `@cert-authority` trust the CA instead of pinning each host.
 * **Connect** runs the handshake. A `StrictHostKeyChecking` selector lets you pick `yes` / `ask` / `accept-new` / `no` — `ask` produces an explicit Accept / Reject / Verify-out-of-band / Verify-via-SSHFP prompt instead of silently pinning. Each handshake exposes a full transcript inspector (client and server ephemerals, host pubkey, exchange hash, signature, decision) with copy-as-JSON; the field that broke the connection is highlighted. A realistic `~/.ssh/known_hosts` file view sits next to the pin list, alongside `ssh-keygen -F` and `ssh-keygen -R` outputs. A **Reset everything** control wipes the demo to its initial state.
@@ -29,13 +64,11 @@ The page walks through six sections.
 
 The URL accepts `?scenario=<id>` for deep links — e.g. `?scenario=mitm-after` auto-starts the server, pins the legitimate host once, then triggers the MITM-after-pinning scenario.
 
-## How to Run Locally
+## Implementation Notes
+
+Additional npm scripts:
 
 ```bash
-git clone https://github.com/systemslibrarian/crypto-lab-ssh-handshake.git
-cd crypto-lab-ssh-handshake
-npm install
-npm run dev        # local dev server with HMR
 npm run build      # type-check + production build to dist/
 npm run preview    # serve the built dist/ locally
 npm test           # vitest — 40 unit tests (engine, policy, wire format, SSHFP, CA)
@@ -44,10 +77,8 @@ npm run test:e2e   # playwright — 13 browser tests for the teaching flows (nee
 
 No environment variables, no API keys, no servers. Everything runs client-side in the browser. The engine in `src/engine.ts` is the verbatim source from the build prompt; the only post-hoc refinement is `fingerprint()`, which now hashes the canonical OpenSSH wire-format public-key blob (via `src/wire.ts`) instead of concatenated JWK coordinates so the demo's `SHA256:` strings match what `ssh-keygen -lf` prints. The other modules — StrictHostKeyChecking policy in `src/policy.ts`, SSHFP registry in `src/sshfp.ts`, host CA in `src/ca.ts`, transcript capture in `src/transcript.ts` — sit on top of the engine without touching its cryptographic logic.
 
-## Part of the Crypto-Lab Suite
-
-This is one demo in a wider portfolio of interactive cryptography labs — see [systemslibrarian.github.io/crypto-lab](https://systemslibrarian.github.io/crypto-lab/) for the rest, including the five PQC families overview, hybrid TLS, harvest-now-decrypt-later timelines, and deep-dives on individual schemes.
-
 ---
 
-"So whether you eat or drink or whatever you do, do it all for the glory of God." — 1 Corinthians 10:31
+*One of 60+ browser demos in the [Crypto Lab](https://crypto-lab.systemslibrarian.dev/) suite.*
+
+*"So whether you eat or drink or whatever you do, do it all for the glory of God." — 1 Corinthians 10:31*
