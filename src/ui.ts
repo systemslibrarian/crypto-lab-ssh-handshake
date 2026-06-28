@@ -1534,6 +1534,12 @@ function renderFooter(): HTMLElement {
 				<p class="panel-copy">Educational model. The crypto (ephemeral X25519/ECDH P-256 + Ed25519/ECDSA P-256 via Web Crypto) is real; the trust logic mirrors OpenSSH known_hosts. The SSH binary packet protocol and algorithm negotiation are not modelled — use OpenSSH or a vetted library for production.</p>
 			</div>
 		</div>
+		<p class="related-demos">Related demos:
+			<a href="https://systemslibrarian.github.io/crypto-lab-pki-chain/">pki-chain</a> ·
+			<a href="https://systemslibrarian.github.io/crypto-lab-web-of-trust/">web-of-trust</a> ·
+			<a href="https://systemslibrarian.github.io/crypto-lab-noise-pipe/">noise-pipe</a> ·
+			<a href="https://systemslibrarian.github.io/crypto-lab-ed25519-forge/">ed25519-forge</a> ·
+			<a href="https://systemslibrarian.github.io/crypto-lab-x3dh-wire/">x3dh-wire</a></p>
 		<p class="scripture">"So whether you eat or drink or whatever you do, do it all for the glory of God." — 1 Corinthians 10:31</p>
 	`;
 	return footer;
