@@ -85,43 +85,34 @@ async function ensureServer(state: AppState): Promise<SshServer> {
 
 // ---------- 1. Hero ----------------------------------------------------------
 
-function renderHero(): HTMLElement {
-	const hero = el('section', 'hero-panel');
+function renderHero(): DocumentFragment {
+	const frag = document.createDocumentFragment();
 	const { kex, sig } = algoNames();
+
+	const hero = el('header', 'cl-hero');
 	hero.innerHTML = `
 		<button id="theme-toggle" class="theme-toggle" type="button" aria-label="Switch to light mode">🌙</button>
-		<div class="hero-copy">
-			<p class="eyebrow">Trust · SSH / TOFU</p>
-			<h1>SSH Handshake &amp; known_hosts</h1>
-			<p class="hero-text">
-				SSH has no CA and no web of trust. The first time you connect to a server, your
-				client sees its long-term host key, asks <em>are you sure?</em>, and — if you say
-				yes — pins the fingerprint forever. Every connection after that compares the
-				presented key to the pin and refuses if it changed. That single check, called
-				<strong>Trust On First Use</strong>, is how SSH gets server authentication without
-				a central authority. The handshake underneath uses real ephemeral ECDH for forward
-				secrecy and a host signature to prove key ownership — and this demo runs both with
-				the Web Crypto API in your browser.
-			</p>
-			<details class="why-details">
-				<summary>Why does SSH ask "are you sure?" the first time?</summary>
-				<p>
-					Because it cannot know. There is no trusted third party telling the client what
-					the real host key is supposed to be. The prompt is SSH being honest about that:
-					the very first connection is a leap of faith. Once you say yes, the key is
-					pinned into <code>~/.ssh/known_hosts</code> and any future swap will be loudly
-					rejected — but the first answer has to come from you, ideally after verifying
-					the fingerprint somewhere outside the SSH session itself.
-				</p>
-			</details>
+		<div class="cl-hero-main">
+			<h1 class="cl-hero-title">SSH Handshake</h1>
+			<p class="cl-hero-sub">Transport handshake · ephemeral ECDH + host-key sig · known_hosts TOFU</p>
+			<p class="cl-hero-desc">Run a real forward-secret SSH transport handshake in your browser — ephemeral ECDH keyed to a host-key signature over the exchange hash — then watch known_hosts pin the fingerprint on first contact and reject any later key swap.</p>
 		</div>
-		<div class="hero-metric-card">
-			<p class="hero-metric-label">At a glance</p>
-			<p class="hero-metric-value">Real ${kex} + ${sig} · forward-secret handshake · trust on first use</p>
-			<p class="hero-metric-note">Every step in this demo is a real cryptographic operation: ephemeral key agreement, exchange-hash binding, host signature, fingerprint compare. TOFU is a policy on top of that real crypto, not a substitute for it.</p>
-		</div>
+		<aside class="cl-hero-why" aria-label="Why it matters">
+			<span class="cl-hero-why-label">WHY IT MATTERS</span>
+			<p class="cl-hero-why-text">SSH has no CA: the first connection is a leap of faith, and a MITM there pins itself instead of the real host. Knowing what TOFU catches — and what SSHFP or @cert-authority add — is the difference between real server authentication and a false sense of it.</p>
+		</aside>
 	`;
-	return hero;
+	frag.appendChild(hero);
+
+	const glance = el('section', 'hero-metric-card');
+	glance.innerHTML = `
+		<p class="hero-metric-label">At a glance</p>
+		<p class="hero-metric-value">Real ${kex} + ${sig} · forward-secret handshake · trust on first use</p>
+		<p class="hero-metric-note">Every step in this demo is a real cryptographic operation: ephemeral key agreement, exchange-hash binding, host signature, fingerprint compare. TOFU is a policy on top of that real crypto, not a substitute for it.</p>
+	`;
+	frag.appendChild(glance);
+
+	return frag;
 }
 
 // ---------- 2. Start the server ---------------------------------------------
@@ -1566,7 +1557,7 @@ export function mountApp(root: HTMLDivElement): void {
 		logScenario: () => {},
 	};
 
-	const shell = el('div', 'page-shell');
+	const shell = el('main', 'page-shell');
 	shell.id = 'playground-heading';
 
 	shell.appendChild(renderHero());
