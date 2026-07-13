@@ -277,7 +277,7 @@
   cursor: pointer;
   font-family: var(--mono);
   font-size: 0.86rem;
-  color: var(--mono-block-fg);
+  color: var(--ink-strong);
   list-style: none;
   padding: 4px 0;
 }
@@ -322,8 +322,16 @@
   margin: 8px 0 0;
   font-family: var(--sans);
   font-size: 0.84rem;
-  color: var(--metric-muted);
+  color: var(--ink-soft);
   line-height: 1.5;
+}
+
+/* Inline code inside a muted hint: the accent chip is borderline on the light
+ * panel these hints sit on. Use the strong ink color so contrast clears AA in
+ * both themes while still reading as code. */
+.kh-hint code {
+  color: var(--ink-strong);
+  background: var(--input-bg);
 }
 
 /* SSHFP card */
@@ -462,6 +470,77 @@
   background: rgba(240, 201, 90, 0.1);
   border-color: rgba(240, 201, 90, 0.22);
   color: var(--accent-3);
+}
+
+/* Guided scenario path ribbon */
+.scenario-path {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 6px;
+  margin-top: 20px;
+}
+
+.scenario-path-step {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+  min-width: 0;
+}
+
+.scenario-path-num {
+  font-family: var(--mono);
+  font-size: 0.7rem;
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.scenario-path-label {
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  color: var(--ink-strong);
+}
+
+.scenario-path-state {
+  font-family: var(--sans);
+  font-size: 0.7rem;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
+.scenario-path-step.is-done {
+  border-color: rgba(19, 111, 99, 0.4);
+  background: rgba(19, 111, 99, 0.08);
+}
+
+.scenario-path-step.is-done .scenario-path-state { color: var(--accent-4); }
+.scenario-path-step.is-done .scenario-path-num::after { content: ' ✓'; }
+
+.scenario-path-step.is-current {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px rgba(11, 127, 171, 0.16);
+}
+
+[data-theme="dark"] .scenario-path-step.is-current {
+  box-shadow: 0 0 0 2px rgba(77, 195, 247, 0.22);
+}
+
+.scenario-path-step.is-current .scenario-path-state { color: var(--accent); font-weight: 700; }
+
+.scenario-path-sep {
+  align-self: center;
+  color: var(--ink-soft);
+  font-family: var(--mono);
+}
+
+@media (max-width: 620px) {
+  .scenario-path-sep { display: none; }
+  .scenario-path-step { flex: 1 1 40%; }
 }
 
 /* Scenario buttons + log */
@@ -827,6 +906,567 @@ code {
   .transcript-row {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* ============================================================= */
+/* Sequence diagram — the two-party message flow                 */
+/* ============================================================= */
+.seq-diagram {
+  margin: 0;
+  padding: 16px 16px 6px;
+  border: 1px solid var(--line);
+  border-radius: 16px;
+  background: var(--panel);
+}
+
+.seq-caption {
+  margin: 0 0 12px;
+  font-family: var(--sans);
+  font-size: 0.88rem;
+  color: var(--ink-soft);
+  line-height: 1.5;
+}
+
+.seq-heads,
+.seq-row {
+  display: grid;
+  grid-template-columns: minmax(84px, 1fr) minmax(0, 2.4fr) minmax(84px, 1fr);
+  align-items: center;
+  column-gap: 8px;
+}
+
+.seq-heads {
+  padding-bottom: 10px;
+  border-bottom: 1px dashed var(--line);
+  margin-bottom: 4px;
+}
+
+.seq-cell {
+  min-width: 0;
+}
+
+.seq-cell--client,
+.seq-cell--server {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+}
+
+.seq-heads .seq-party {
+  font-family: var(--mono);
+  font-weight: 700;
+  font-size: 0.95rem;
+  color: var(--ink-strong);
+  letter-spacing: 0.04em;
+}
+
+.seq-heads .seq-party-sub {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  color: var(--ink-soft);
+  word-break: break-all;
+}
+
+/* The two "lifelines" that make the client / server columns read as parties. */
+.seq-body {
+  position: relative;
+}
+
+.seq-body::before,
+.seq-body::after {
+  content: '';
+  position: absolute;
+  top: 0;
+  bottom: 8px;
+  width: 2px;
+  background: var(--line);
+}
+
+/* Lifeline positions align with the centres of the 1fr edge columns. */
+.seq-body::before { left: calc((100% - 16px) * (1 / 4.4) / 2); }
+.seq-body::after { right: calc((100% - 16px) * (1 / 4.4) / 2); }
+
+.seq-row {
+  position: relative;
+  padding: 8px 0;
+  opacity: 0;
+  animation: seqIn 320ms ease forwards;
+}
+
+@keyframes seqIn {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .seq-row { animation: none; opacity: 1; }
+}
+
+/* Wire rows: a horizontal track with a directional message chip. */
+.seq-cell--track {
+  position: relative;
+  min-height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.seq-msg {
+  position: relative;
+  z-index: 1;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  padding: 4px 12px;
+  border-radius: 999px;
+  background: var(--mono-block-bg);
+  color: var(--mono-block-fg);
+  white-space: nowrap;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Arrow line under the message chip, with a direction-appropriate head. */
+.seq-row--wire .seq-cell--track::before {
+  content: '';
+  position: absolute;
+  left: 6px;
+  right: 6px;
+  top: 50%;
+  height: 2px;
+  background: var(--accent);
+  z-index: 0;
+}
+
+.seq-arrow-right .seq-cell--track::after,
+.seq-arrow-left .seq-cell--track::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  width: 0;
+  height: 0;
+  transform: translateY(-50%);
+  z-index: 0;
+}
+
+.seq-arrow-right .seq-cell--track::after {
+  right: 4px;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-left: 9px solid var(--accent);
+}
+
+.seq-arrow-left .seq-cell--track::after {
+  left: 4px;
+  border-top: 6px solid transparent;
+  border-bottom: 6px solid transparent;
+  border-right: 9px solid var(--accent);
+}
+
+.seq-row--wire.seq-fail .seq-cell--track::before,
+.seq-row--wire.seq-fail.seq-arrow-right .seq-cell--track::after {
+  background: var(--warning-fg);
+}
+.seq-row--wire.seq-fail.seq-arrow-right .seq-cell--track::after {
+  border-left-color: var(--warning-fg);
+  background: transparent;
+}
+.seq-row--wire.seq-fail.seq-arrow-left .seq-cell--track::after {
+  border-right-color: var(--warning-fg);
+}
+
+.seq-badge {
+  font-family: var(--mono);
+  font-size: 0.64rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(19, 111, 99, 0.9);
+  color: #f7f1eb;
+}
+
+.seq-fail .seq-badge {
+  background: var(--warning-fg);
+  color: #fff;
+}
+
+[data-theme="dark"] .seq-fail .seq-badge {
+  color: #1a1624;
+}
+
+/* Note rows: a self-action on one lane (or both), with detail text below. */
+.seq-note-chip {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  padding: 3px 9px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: var(--panel-strong);
+  color: var(--ink-strong);
+}
+
+.seq-note--client .seq-note-chip {
+  box-shadow: 0 0 0 2px rgba(11, 127, 171, 0.14);
+}
+
+.seq-fail.seq-note--client .seq-note-chip,
+.seq-fail .seq-note-chip {
+  border-color: var(--warning-border);
+  color: var(--warning-fg);
+}
+
+.seq-eq {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--ink-soft);
+}
+
+.seq-note-detail {
+  grid-column: 1 / -1;
+  margin: 8px 0 0;
+  font-family: var(--sans);
+  font-size: 0.86rem;
+  line-height: 1.55;
+  color: var(--ink-soft);
+}
+
+.seq-note-label {
+  font-family: var(--mono);
+  font-weight: 700;
+  color: var(--ink-strong);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-right: 6px;
+}
+
+.seq-fail .seq-note-label {
+  color: var(--warning-fg);
+}
+
+/* Collapse the step checklist under a disclosure now that the diagram leads. */
+.step-list-details {
+  margin: 0;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  padding: 4px 14px;
+}
+
+.step-list-details > summary {
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  color: var(--ink-strong);
+  list-style: none;
+  padding: 8px 0;
+}
+
+.step-list-details > summary::-webkit-details-marker { display: none; }
+.step-list-details > summary::before { content: '▸ '; color: var(--accent); }
+.step-list-details[open] > summary::before { content: '▾ '; }
+.step-list-details[open] { padding-bottom: 14px; }
+
+@media (max-width: 620px) {
+  .seq-heads,
+  .seq-row {
+    grid-template-columns: minmax(60px, 1fr) minmax(0, 1.8fr) minmax(60px, 1fr);
+  }
+  .seq-msg { font-size: 0.7rem; padding: 3px 8px; }
+  .seq-note-detail { font-size: 0.82rem; }
+}
+
+/* ============================================================= */
+/* Exchange-hash binding exhibit                                 */
+/* ============================================================= */
+.hash-lab,
+.auth-lab,
+.advanced-trust {
+  padding: 14px 18px;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--panel-strong);
+}
+
+.hash-lab > summary,
+.auth-lab > summary,
+.advanced-trust-summary {
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--ink-strong);
+  list-style: none;
+  padding: 4px 0;
+  font-size: 0.98rem;
+}
+
+.hash-lab > summary::-webkit-details-marker,
+.auth-lab > summary::-webkit-details-marker,
+.advanced-trust-summary::-webkit-details-marker { display: none; }
+.hash-lab > summary::before,
+.auth-lab > summary::before { content: '▸ '; color: var(--accent); }
+.hash-lab[open] > summary::before,
+.auth-lab[open] > summary::before { content: '▾ '; }
+
+.hlab-intro {
+  margin: 10px 0 14px;
+  font-family: var(--sans);
+  font-size: 0.92rem;
+  line-height: 1.6;
+  color: var(--ink-soft);
+}
+
+.hlab-tiles {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 10px;
+}
+
+.hlab-tile {
+  padding: 12px 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  transition: border-color 160ms ease, background 160ms ease;
+}
+
+.hlab-tile--mutated {
+  border-color: var(--warning-border);
+  background: var(--warning-bg);
+}
+
+.hlab-tile-title {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: var(--ink-strong);
+}
+
+.hlab-tile--mutated .hlab-tile-title { color: var(--warning-fg); }
+
+.hlab-tile-blurb {
+  margin: 0;
+  font-family: var(--sans);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  color: var(--ink-soft);
+}
+
+.hlab-tile-val {
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-strong);
+  background: transparent;
+  padding: 0;
+  word-break: break-all;
+}
+
+.hlab-tile--mutated .hlab-tile-val { color: var(--warning-fg); }
+
+.hlab-swap {
+  margin-top: auto;
+  align-self: flex-start;
+  font-family: var(--mono);
+  font-size: 0.74rem;
+  padding: 6px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--line);
+  background: transparent;
+  color: var(--ink-strong);
+  cursor: pointer;
+}
+
+.hlab-swap:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.hlab-swap:disabled { opacity: 0.4; cursor: not-allowed; }
+.hlab-swap:focus-visible { outline: 2px solid var(--accent-3); outline-offset: 2px; }
+
+.hlab-tile-tag {
+  margin-top: auto;
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  color: var(--warning-fg);
+}
+
+.hlab-arrow {
+  text-align: center;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  color: var(--ink-soft);
+  margin: 12px 0;
+  letter-spacing: 0.1em;
+}
+
+.hlab-h {
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--mono-block-bg);
+}
+
+.hlab-h-label {
+  margin: 0 0 8px;
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  line-height: 1.5;
+  color: var(--metric-muted);
+  word-break: break-word;
+}
+
+.hlab-h-value {
+  font-family: var(--mono);
+  font-size: 0.8rem;
+  color: var(--mono-block-fg);
+  background: transparent;
+  padding: 0;
+  word-break: break-all;
+}
+
+.hlab-h-value--changed {
+  color: #ffb4b4;
+}
+
+.hlab-verdict {
+  margin: 12px 0 0;
+  padding: 12px 14px;
+  border-radius: 14px;
+  font-family: var(--sans);
+  font-size: 0.9rem;
+  line-height: 1.6;
+  border: 1px solid var(--line);
+}
+
+.hlab-verdict--ok {
+  background: rgba(19, 111, 99, 0.1);
+  border-color: rgba(19, 111, 99, 0.28);
+  color: var(--ink-strong);
+}
+
+.hlab-verdict--fail {
+  background: var(--warning-bg);
+  border-color: var(--warning-border);
+  color: var(--warning-fg);
+}
+
+.hlab-verdict-badge {
+  font-family: var(--mono);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  margin-right: 8px;
+  background: var(--mono-block-bg);
+  color: var(--mono-block-fg);
+}
+
+.hlab-verdict--fail .hlab-verdict-badge {
+  background: var(--warning-fg);
+  color: #fff;
+}
+
+[data-theme="dark"] .hlab-verdict--fail .hlab-verdict-badge { color: #1a1624; }
+
+.hlab-actions { margin-top: 12px; }
+
+.hlab-foot {
+  margin: 12px 0 0;
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  line-height: 1.5;
+  color: var(--ink-soft);
+}
+
+/* ============================================================= */
+/* Forward-secrecy vs authentication toggle                      */
+/* ============================================================= */
+.auth-lab-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 6px 0 12px;
+  font-family: var(--mono);
+  font-size: 0.88rem;
+  color: var(--ink-strong);
+  cursor: pointer;
+}
+
+.auth-lab-toggle input { width: 20px; height: 20px; }
+
+.auth-lab-out { margin-top: 14px; }
+
+.auth-outcome { gap: 12px; }
+
+.auth-outcome-rows {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.auth-outcome-rows li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--panel);
+}
+
+.auth-row-label {
+  font-family: var(--mono);
+  font-size: 0.86rem;
+  color: var(--ink-strong);
+}
+
+/* ============================================================= */
+/* Advanced trust bootstrap disclosure (progressive disclosure)  */
+/* ============================================================= */
+.advanced-trust { margin-top: 22px; }
+
+.advanced-trust-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 10px;
+  justify-content: space-between;
+}
+
+.advanced-trust-title { font-size: 0.98rem; }
+.advanced-trust-summary::before { content: '▸ '; color: var(--accent); }
+.advanced-trust[open] .advanced-trust-summary::before { content: '▾ '; }
+
+.advanced-trust.is-locked .advanced-trust-summary {
+  cursor: not-allowed;
+  color: var(--ink-soft);
+}
+
+.advanced-trust.is-locked .advanced-trust-summary::before {
+  content: '🔒 ';
+}
+
+.advanced-trust-hint {
+  font-family: var(--mono);
+  font-size: 0.76rem;
+  color: var(--ink-soft);
+}
+
+.advanced-trust-hint--todo { color: var(--accent-2); }
+
+.advanced-trust-lede {
+  margin: 12px 0 4px;
+  color: var(--ink-soft);
 }
 
 @media (max-width: 520px) {

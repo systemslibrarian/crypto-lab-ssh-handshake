@@ -42,3 +42,35 @@ test('no WCAG A/AA violations in light theme', async ({ page }) => {
 	await openAllDetails(page);
 	await scan(page);
 });
+
+// The sequence diagram, exchange-hash binding lab, and the forward-secrecy
+// toggle only render after a handshake runs — scan them too, in both themes.
+async function connectAndExercise(page: Page): Promise<void> {
+	await page.goto('./');
+	await page.click('#start-btn');
+	await page.click('.mode-pill[data-mode="accept-new"]');
+	await page.click('#connect-btn');
+	await expect(page.locator('.seq-diagram').first()).toBeVisible();
+	// Mutate a hash-lab tile so the FAIL verdict styling is on screen.
+	await page.locator('.hlab-swap').first().click();
+	await expect(page.locator('.hlab-verdict--fail')).toBeVisible();
+	// Run the forward-secrecy toggle with auth OFF so its warning renders.
+	await page.locator('.auth-lab > summary').click();
+	await page.uncheck('#auth-verify');
+	await page.click('#auth-run');
+	await expect(page.locator('.auth-lab-out .ssh-warning')).toBeVisible();
+}
+
+test('no WCAG A/AA violations in post-connect exhibits (dark)', async ({ page }) => {
+	await connectAndExercise(page);
+	await openAllDetails(page);
+	await scan(page);
+});
+
+test('no WCAG A/AA violations in post-connect exhibits (light)', async ({ page }) => {
+	await connectAndExercise(page);
+	await page.locator('#cl-theme-toggle').click();
+	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+	await openAllDetails(page);
+	await scan(page);
+});

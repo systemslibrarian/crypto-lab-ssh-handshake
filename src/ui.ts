@@ -26,6 +26,7 @@ import {
 	type PolicyConnectResult,
 } from './policy.ts';
 import { shortBytes, tapResponder, type Transcript } from './transcript.ts';
+import { mountHashLab } from './hashlab.ts';
 import {
 	clearSshfp,
 	lookupSshfp,
@@ -70,6 +71,8 @@ interface AppState {
 	lastTranscript: Transcript | null;
 	pending: PolicyConnectResult['pendingFirstContact'] | null;
 	pendingLabel: string;
+	didTofuConnect: boolean;   // completed at least one first-contact TOFU pin
+	didMitmAfter: boolean;     // ran the MITM-after-pinning scenario at least once
 	rerenderSetup: () => void;
 	rerenderConnect: () => void;
 	rerenderScenarios: () => void;
@@ -136,18 +139,49 @@ function renderSetupSection(state: AppState): HTMLElement {
 			<span id="start-status" class="ssh-status"></span>
 		</div>
 		<div id="host-display" class="ssh-host-display"></div>
-		<div id="sshfp-display" class="ssh-host-display"></div>
-		<div id="ca-display" class="ssh-host-display"></div>
+		<details id="advanced-trust" class="advanced-trust">
+			<summary class="advanced-trust-summary">
+				<span class="advanced-trust-title">Advanced trust bootstrap (optional)</span>
+				<span id="advanced-trust-hint" class="advanced-trust-hint"></span>
+			</summary>
+			<p class="panel-copy advanced-trust-lede">Two ways to close the first-contact gap that plain TOFU leaves open: publishing the fingerprint in DNS (SSHFP) and delegating trust to a certificate authority (@cert-authority). Both are second-order — learn plain TOFU first (Sections 2 and 3), then come back here.</p>
+			<div id="sshfp-display" class="ssh-host-display"></div>
+			<div id="ca-display" class="ssh-host-display"></div>
+		</details>
 	`;
 
 	const startBtn = section.querySelector<HTMLButtonElement>('#start-btn')!;
 	const restartBtn = section.querySelector<HTMLButtonElement>('#restart-btn')!;
 	const status = section.querySelector<HTMLElement>('#start-status')!;
 	const host = section.querySelector<HTMLElement>('#host-display')!;
+	const advanced = section.querySelector<HTMLDetailsElement>('#advanced-trust')!;
+	const advancedHint = section.querySelector<HTMLElement>('#advanced-trust-hint')!;
 	const sshfpDisplay = section.querySelector<HTMLElement>('#sshfp-display')!;
 	const caDisplay = section.querySelector<HTMLElement>('#ca-display')!;
 
+	// The advanced panels (SSHFP + @cert-authority) unlock once the learner has
+	// internalized plain TOFU: one first-contact connect AND one MITM-after
+	// scenario. Until then the disclosure is present but visibly gated, so the
+	// core TOFU story lands before DNSSEC / certs arrive.
+	function updateAdvancedGate(): void {
+		const unlocked = state.didTofuConnect && state.didMitmAfter;
+		advanced.classList.toggle('is-locked', !unlocked);
+		if (unlocked) {
+			advancedHint.textContent = 'unlocked';
+			advancedHint.classList.remove('advanced-trust-hint--todo');
+		} else {
+			const need: string[] = [];
+			if (!state.didTofuConnect) need.push('connect once (TOFU)');
+			if (!state.didMitmAfter) need.push('run “MITM after pinning”');
+			advancedHint.textContent = `unlocks after you ${need.join(' and ')}`;
+			advancedHint.classList.add('advanced-trust-hint--todo');
+			// Keep it collapsed until unlocked so it can't front-load jargon.
+			advanced.open = false;
+		}
+	}
+
 	function refresh(): void {
+		updateAdvancedGate();
 		if (!state.server) {
 			host.innerHTML = `<p class="panel-copy ssh-empty">No server running yet. The handshake needs a host key — generate one to continue.</p>`;
 			sshfpDisplay.innerHTML = '';
@@ -215,6 +249,13 @@ function renderSetupSection(state: AppState): HTMLElement {
 		restartBtn.hidden = false;
 	}
 
+	// Guard: while locked, keep the disclosure from expanding on click/keyboard.
+	advanced.addEventListener('toggle', () => {
+		if (advanced.open && advanced.classList.contains('is-locked')) {
+			advanced.open = false;
+		}
+	});
+
 	state.rerenderSetup = refresh;
 	refresh();
 
@@ -260,7 +301,7 @@ function renderConnectSection(state: AppState): HTMLElement {
 			<div>
 				<p class="section-kicker">Section · 2</p>
 				<h2 id="connect-heading">Connect</h2>
-				<p class="panel-copy">Run the handshake. The client makes an ephemeral key, the server replies with its ephemeral key plus a signature over the exchange hash, and the client verifies the signature and applies the <code>known_hosts</code> policy.</p>
+				<p class="panel-copy">Run the handshake and watch it play out as a <strong>conversation between two parties</strong>: the client's ephemeral key flies right, the server's hello (ephemeral key + host key + signature) flies left, and each message resolves OK or FAIL. Below the flow you can pull apart the two ideas people conflate — open the <em>exchange-hash binding</em> lab to swap a field and watch the signature break, and the <em>forward secrecy vs authentication</em> toggle to feel why sharing a secret is not the same as knowing who you shared it with.</p>
 			</div>
 		</div>
 		<fieldset class="ssh-mode" aria-describedby="mode-help">
@@ -277,6 +318,8 @@ function renderConnectSection(state: AppState): HTMLElement {
 		</div>
 		<div id="connect-pending" class="ssh-output" aria-live="polite"></div>
 		<div id="connect-result" class="ssh-output" aria-live="polite"></div>
+		<div id="hash-lab" class="ssh-output"></div>
+		<div id="auth-toggle-lab" class="ssh-output"></div>
 		<div id="connect-pins" class="ssh-pins-wrap"></div>
 	`;
 
@@ -289,6 +332,8 @@ function renderConnectSection(state: AppState): HTMLElement {
 	const modeHelp = section.querySelector<HTMLElement>('#mode-help')!;
 	const pendingBox = section.querySelector<HTMLElement>('#connect-pending')!;
 	const resultBox = section.querySelector<HTMLElement>('#connect-result')!;
+	const hashLabBox = section.querySelector<HTMLElement>('#hash-lab')!;
+	const authLabBox = section.querySelector<HTMLElement>('#auth-toggle-lab')!;
 	const pinsBox = section.querySelector<HTMLElement>('#connect-pins')!;
 
 	function renderModeControls(): void {
@@ -354,6 +399,8 @@ function renderConnectSection(state: AppState): HTMLElement {
 		if (!state.server) {
 			resultBox.innerHTML = `<p class="panel-copy ssh-empty">Start the server first, then run the handshake.</p>`;
 			pendingBox.innerHTML = '';
+			hashLabBox.replaceChildren();
+			authLabBox.replaceChildren();
 			pinsBox.replaceChildren(renderKnownHosts(state));
 			connectBtn.disabled = true;
 			forgetBtn.disabled = true;
@@ -382,6 +429,8 @@ function renderConnectSection(state: AppState): HTMLElement {
 		} else {
 			resultBox.innerHTML = '';
 		}
+		mountHashLab(hashLabBox, state.lastTranscript);
+		mountAuthToggleLab(authLabBox);
 		pinsBox.replaceChildren(renderKnownHosts(state));
 	}
 
@@ -441,6 +490,10 @@ function renderConnectSection(state: AppState): HTMLElement {
 					},
 				],
 			};
+		}
+		if (accepted && state.lastResult?.connected) {
+			state.didTofuConnect = true;
+			state.rerenderSetup();
 		}
 		state.pending = null;
 		state.pendingLabel = '';
@@ -518,6 +571,10 @@ function renderConnectSection(state: AppState): HTMLElement {
 					state.pendingLabel = '';
 					status.textContent = policyResult.connected ? 'Connection established.' : policyResult.result.summary;
 				}
+				if (policyResult.connected && policyResult.result.hostKeyDecision === 'tofu-pinned') {
+					state.didTofuConnect = true;
+					state.rerenderSetup();
+				}
 				state.rerenderConnect();
 				state.rerenderScenarios();
 			} catch (err) {
@@ -563,6 +620,8 @@ function renderConnectSection(state: AppState): HTMLElement {
 		state.pending = null;
 		state.pendingLabel = '';
 		state.mode = 'ask';
+		state.didTofuConnect = false;
+		state.didMitmAfter = false;
 		status.textContent = 'Reset complete. Server stopped, CA forgotten, SSHFP cleared, known_hosts emptied.';
 		state.rerenderSetup();
 		state.rerenderConnect();
@@ -570,6 +629,95 @@ function renderConnectSection(state: AppState): HTMLElement {
 	});
 
 	return section;
+}
+
+// ---------- Forward secrecy vs. authentication toggle -----------------------
+//
+// Newcomers conflate "we share a secret" with "we know who we're talking to".
+// ECDH gives you the first for free — even with a man-in-the-middle. Only the
+// host signature gives you the second. This exhibit runs a REAL handshake
+// against a fresh MITM and lets the learner flip host-key authentication off:
+// with it OFF, KEX still agrees a secret and the MITM connects silently; with
+// it ON, the exact same MITM is caught. The crypto is unchanged — the toggle
+// only decides whether the client's signature/identity check is consulted,
+// which is precisely the difference between forward secrecy and authentication.
+function mountAuthToggleLab(container: HTMLElement): void {
+	container.innerHTML = `
+		<details class="auth-lab">
+			<summary>Forward secrecy vs. authentication — toggle the host signature</summary>
+			<p class="hlab-intro">Ephemeral ECDH and the host signature do two <em>different</em> jobs. Turn host-key authentication off and run a man-in-the-middle: KEX still agrees a shared secret with the attacker (forward secrecy is intact) and the connection succeeds — because nothing checked <em>who</em> the key belongs to. Turn it back on and the same MITM is caught.</p>
+			<label class="auth-lab-toggle">
+				<input type="checkbox" id="auth-verify" checked />
+				<span id="auth-verify-text">Host-key authentication: <strong>ON</strong> — verify the signature over H (real SSH)</span>
+			</label>
+			<div class="auth-lab-actions">
+				<button type="button" id="auth-run" class="tab-button">Run a MITM against this setting</button>
+			</div>
+			<div id="auth-lab-out" class="auth-lab-out" role="status" aria-live="polite"></div>
+		</details>`;
+
+	const verifyBox = container.querySelector<HTMLInputElement>('#auth-verify')!;
+	const verifyText = container.querySelector<HTMLElement>('#auth-verify-text')!;
+	const runBtn = container.querySelector<HTMLButtonElement>('#auth-run')!;
+	const out = container.querySelector<HTMLElement>('#auth-lab-out')!;
+
+	verifyBox.addEventListener('change', () => {
+		verifyText.innerHTML = verifyBox.checked
+			? 'Host-key authentication: <strong>ON</strong> — verify the signature over H (real SSH)'
+			: 'Host-key authentication: <strong>OFF</strong> — ECDH only, skip the identity check';
+	});
+
+	runBtn.addEventListener('click', () => {
+		void (async () => {
+			runBtn.disabled = true;
+			out.innerHTML = `<p class="panel-copy ssh-empty">Running handshake against a man-in-the-middle…</p>`;
+			try {
+				// A fresh client with no pins, so known_hosts is out of the picture
+				// and we isolate the authentication question. The MITM signs with
+				// ITS OWN host key — a real, valid signature over a real H.
+				const freshClient = new SshClient();
+				const attacker = await makeMitm(HOST_NAME);
+				const tap = tapResponder(HOST_NAME, attacker, algoNames());
+				const result = await freshClient.connect(HOST_NAME, tap);
+				// The engine ran the true handshake. sharedAgrees is the KEX result;
+				// signatureValid is the authentication result. "Auth off" means we
+				// ignore the identity check — exactly what makes a MITM succeed.
+				const authOn = verifyBox.checked;
+				const kexOk = result.sharedAgrees;
+				const connected = authOn ? (kexOk && result.signatureValid && result.connected) : kexOk;
+				out.innerHTML = renderAuthOutcome(authOn, kexOk, connected, attacker.identity.fingerprint);
+			} catch (err) {
+				out.innerHTML = `<p class="panel-copy ssh-empty">Failed: ${(err as Error).message}</p>`;
+			} finally {
+				runBtn.disabled = false;
+			}
+		})();
+	});
+}
+
+function renderAuthOutcome(authOn: boolean, kexOk: boolean, connected: boolean, presentedFp: string): string {
+	const kexBadge = kexOk ? 'OK' : 'FAIL';
+	const kexCls = kexOk ? 'scenario-status--valid' : 'scenario-status--invalid';
+	// The MITM presents its OWN key. With authentication on, the client would
+	// need this key to match the expected host — it doesn't, so from the honest
+	// server's standpoint this is an impostor. The MITM's signature over its own
+	// H is internally valid, but it authenticates the ATTACKER, not the host.
+	const authCls = authOn ? 'scenario-status--invalid' : 'scenario-status--pending';
+	const authBadge = authOn ? 'IMPOSTOR' : 'NOT CHECKED';
+	const verdictCls = connected ? 'ssh-warning--bad' : 'ssh-warning--pending';
+	const verdict = authOn
+		? `<p class="ssh-warning-title">MITM rejected — authentication did its job</p>
+		   <p class="ssh-warning-body">Forward secrecy alone (ECDH) happily agreed a secret with the attacker. But the host signature is tied to a specific identity, and this responder is not the host you meant to reach — so verifying it <strong>catches the impostor</strong>. Shared secret ≠ known peer; the signature is what closes that gap.</p>`
+		: `<p class="ssh-warning-title">MITM connected silently — no one checked identity</p>
+		   <p class="ssh-warning-body">With host-key authentication off, the handshake only asked “can we agree a secret?” — and ECDH answered yes, <strong>even with a man-in-the-middle</strong>. The attacker now shares an encrypted channel with you while impersonating <code>${HOST_NAME}</code>. Forward secrecy protected the secret; nothing protected <em>who you gave it to</em>. Presented key: <code>${presentedFp}</code>.</p>`;
+	return `
+		<div class="handshake-card auth-outcome">
+			<ul class="auth-outcome-rows">
+				<li><span class="auth-row-label">ephemeral ECDH (forward secrecy)</span><span class="handshake-step-badge ${kexCls}">${kexBadge}</span></li>
+				<li><span class="auth-row-label">host-key authentication (identity)</span><span class="handshake-step-badge ${authCls}">${authBadge}</span></li>
+			</ul>
+			<div class="ssh-warning ${verdictCls}" role="alert">${verdict}</div>
+		</div>`;
 }
 
 function renderPendingPrompt(pending: NonNullable<PolicyConnectResult['pendingFirstContact']>, label: string): string {
@@ -693,7 +841,7 @@ function renderSshfpCard(state: AppState): string {
 				<dt>name</dt><dd><code>${rec.hostName}</code></dd>
 				<dt>fingerprint</dt><dd><code>${rec.fingerprint}</code></dd>
 				<dt>signed</dt><dd>${rec.dnssecSigned ? '<code>DNSSEC ✓ trustworthy channel</code>' : '<code class="warn">unsigned — DNS-spoofable</code>'}</dd>
-				<dt>dig output</dt><dd><pre class="kh-file"><code>${rrLine}</code></pre></dd>
+				<dt>dig output</dt><dd><pre class="kh-file" tabindex="0" role="region" aria-label="dig SSHFP output"><code>${rrLine}</code></pre></dd>
 			</dl>
 			<p class="kh-hint">SSHFP RDATA: <code>&lt;algorithm&gt; &lt;fp-type&gt; &lt;hex-fingerprint&gt;</code>. Algorithm 4 = Ed25519, 3 = ECDSA. fp-type 2 = SHA-256. (RFC 4255 + RFC 7479.)</p>
 			<div class="pending-actions">
@@ -769,6 +917,104 @@ function transcriptHighlight(result: ConnectResult): Set<keyof Transcript> {
 	return set;
 }
 
+// ---------- Sequence diagram (the two-party message flow) -------------------
+//
+// Spatializes the handshake: a client lane and a server lane with the actual
+// messages crossing between them. Reuses the engine's step data — every arrow's
+// OK/FAIL and its detail come straight from result.steps, so the diagram and
+// the numbered list below it can never disagree. A newcomer SEES that two
+// parties exchange messages; the list stays as the reference detail.
+//
+// The five steps map onto the wire like this:
+//   0 Client KEX init  → client-lane note (client makes its ephemeral)
+//   1 Server KEX reply  → arrow →  (client offers ephemeral)  then arrow ← (server hello: eph + host pub + sig)
+//   2 Shared secret     → both-lane note (each side derives the same secret)
+//   3 Host signature    → client-lane note (client verifies the signature over H)
+//   4 known_hosts / TOFU → client-lane note (client applies the pin policy)
+let seqSeq = 0;
+
+interface SeqRow {
+	kind: 'client-note' | 'server-hello' | 'client-offer' | 'both-note' | 'client-verify' | 'client-policy';
+	label: string;
+	detail: string;
+	ok: boolean;
+}
+
+function stepsToSeqRows(result: ConnectResult): SeqRow[] {
+	const s = result.steps;
+	const get = (i: number) => s[i] ?? { label: '', detail: '', ok: true };
+	const rows: SeqRow[] = [];
+	// Client makes its ephemeral (step 0)
+	rows.push({ kind: 'client-note', label: get(0).label || 'Client KEX init', detail: get(0).detail, ok: get(0).ok });
+	// Client offers its ephemeral pubkey → server
+	rows.push({ kind: 'client-offer', label: 'ephemeral pubkey →', detail: 'Client sends its one-time ECDH public key. Fresh every connection — this is what makes the session forward-secret.', ok: get(0).ok });
+	// Server hello ← (eph + host pub + signature over H)  (step 1)
+	rows.push({ kind: 'server-hello', label: '← hello: eph + host key + sig(H)', detail: get(1).detail, ok: get(1).ok });
+	// Both derive the shared secret (step 2)
+	rows.push({ kind: 'both-note', label: get(2).label || 'Shared secret', detail: get(2).detail, ok: get(2).ok });
+	// Client verifies the host signature over H (step 3)
+	rows.push({ kind: 'client-verify', label: get(3).label || 'Host signature', detail: get(3).detail, ok: get(3).ok });
+	// Client applies known_hosts / TOFU (last step — may be renamed by policy)
+	const last = s[s.length - 1] ?? get(4);
+	rows.push({ kind: 'client-policy', label: last.label || 'known_hosts', detail: last.detail, ok: last.ok });
+	return rows;
+}
+
+function renderSequenceDiagram(result: ConnectResult): string {
+	const rows = stepsToSeqRows(result);
+	const id = `seq${seqSeq++}`;
+	const rowHtml = rows
+		.map((r, i) => {
+			const okClass = r.ok ? 'seq-ok' : 'seq-fail';
+			const badge = r.ok ? 'OK' : 'FAIL';
+			const delay = `style="animation-delay:${i * 260}ms"`;
+			if (r.kind === 'client-offer') {
+				return `
+					<div class="seq-row seq-row--wire seq-arrow-right ${okClass}" ${delay}>
+						<div class="seq-cell seq-cell--client"></div>
+						<div class="seq-cell seq-cell--track"><span class="seq-msg seq-msg--right">${r.label}</span></div>
+						<div class="seq-cell seq-cell--server"></div>
+					</div>`;
+			}
+			if (r.kind === 'server-hello') {
+				return `
+					<div class="seq-row seq-row--wire seq-arrow-left ${okClass}" ${delay}>
+						<div class="seq-cell seq-cell--client"></div>
+						<div class="seq-cell seq-cell--track"><span class="seq-msg seq-msg--left">${r.label}<span class="seq-badge">${badge}</span></span></div>
+						<div class="seq-cell seq-cell--server"></div>
+					</div>`;
+			}
+			if (r.kind === 'both-note') {
+				return `
+					<div class="seq-row seq-row--note seq-note--both ${okClass}" ${delay}>
+						<div class="seq-cell seq-cell--client"><span class="seq-note-chip">derive secret</span></div>
+						<div class="seq-cell seq-cell--track"><span class="seq-eq">=</span></div>
+						<div class="seq-cell seq-cell--server"><span class="seq-note-chip">derive secret</span></div>
+						<p class="seq-note-detail"><span class="seq-note-label">${r.label}<span class="seq-badge">${badge}</span></span> ${r.detail}</p>
+					</div>`;
+			}
+			// client-side self action (note / verify / policy)
+			return `
+				<div class="seq-row seq-row--note seq-note--client ${okClass}" ${delay}>
+					<div class="seq-cell seq-cell--client"><span class="seq-note-chip">${r.kind === 'client-policy' ? 'known_hosts' : r.kind === 'client-verify' ? 'verify sig' : 'client'}</span></div>
+					<div class="seq-cell seq-cell--track"></div>
+					<div class="seq-cell seq-cell--server"></div>
+					<p class="seq-note-detail"><span class="seq-note-label">${r.label}<span class="seq-badge">${badge}</span></span> ${r.detail}</p>
+				</div>`;
+		})
+		.join('');
+	return `
+		<figure class="seq-diagram" id="${id}" aria-label="SSH handshake message flow between client and server">
+			<figcaption class="seq-caption">The handshake as a conversation — messages cross between the two parties, top to bottom.</figcaption>
+			<div class="seq-heads">
+				<div class="seq-cell seq-cell--client"><span class="seq-party">client</span><span class="seq-party-sub">you</span></div>
+				<div class="seq-cell seq-cell--track"></div>
+				<div class="seq-cell seq-cell--server"><span class="seq-party">server</span><span class="seq-party-sub">${HOST_NAME}</span></div>
+			</div>
+			<div class="seq-body">${rowHtml}</div>
+		</figure>`;
+}
+
 function renderConnectResult(result: ConnectResult, label: string): string {
 	const stepLis = result.steps
 		.map((step) => {
@@ -796,7 +1042,11 @@ function renderConnectResult(result: ConnectResult, label: string): string {
 				<p class="hero-metric-label">${label}</p>
 				<span class="handshake-decision ${decisionClass}">${decisionText}</span>
 			</div>
-			<ol class="handshake-step-list">${stepLis}</ol>
+			${renderSequenceDiagram(result)}
+			<details class="step-list-details">
+				<summary>Step-by-step detail (the same flow, as a checklist)</summary>
+				<ol class="handshake-step-list">${stepLis}</ol>
+			</details>
 			${banner}
 			<p class="handshake-summary">${result.summary}</p>
 		</div>
@@ -834,17 +1084,17 @@ function renderKnownHosts(state: AppState): HTMLElement {
 			<ul class="pin-list">${rows}</ul>
 			<details class="known-hosts-file">
 				<summary>~/.ssh/known_hosts (file format — exact)</summary>
-				<pre class="kh-file"><code>${file}</code></pre>
+				<pre class="kh-file" tabindex="0" role="region" aria-label="known_hosts file contents"><code>${file}</code></pre>
 				<p class="kh-hint">Third field is base64 of the canonical OpenSSH wire-format public key blob (RFC 4253 §6.6 / RFC 8709 §4), exactly what <code>ssh-keyscan</code> produces. Real files may also use HashKnownHosts (hashed hostnames starting with <code>|1|</code>).</p>
 			</details>
 			<details class="known-hosts-file">
 				<summary>Multi-key host: what real OpenSSH writes (illustrative)</summary>
-				<pre class="kh-file"><code>${escapeHtml(multiKeyIllustration(currentJwk, sig))}</code></pre>
+				<pre class="kh-file" tabindex="0" role="region" aria-label="Illustrative multi-key known_hosts entries"><code>${escapeHtml(multiKeyIllustration(currentJwk, sig))}</code></pre>
 				<p class="kh-hint">A typical sshd offers ed25519, ecdsa, AND rsa host keys at the same hostname — your known_hosts ends up with one line per algorithm. This demo's engine runs ONE algorithm at a time, so only the ${sshKeyType(sig)} line above is the result of an actual handshake; the others are placeholders showing the file shape.</p>
 			</details>
 			<details class="known-hosts-file">
 				<summary>ssh-keygen -F ${HOST_NAME}</summary>
-				<pre class="kh-file"><code>${escapeHtml(grepOutput)}</code></pre>
+				<pre class="kh-file" tabindex="0" role="region" aria-label="ssh-keygen -F output"><code>${escapeHtml(grepOutput)}</code></pre>
 			</details>
 		`,
 	});
@@ -943,18 +1193,44 @@ function renderScenariosSection(state: AppState): HTMLElement {
 			<div>
 				<p class="section-kicker">Section · 3</p>
 				<h2 id="scenarios-heading">Break it (and recover)</h2>
-				<p class="panel-copy">Five scenarios. The first three are attacks; the last two are legitimate operations that trip the SAME warning — which is the dual-use lesson at the heart of TOFU. Each opens its full transcript so you can see which field was the smoking gun.</p>
+				<p class="panel-copy">Eight scenarios: attacks, and legitimate operations that trip the SAME warning — the dual-use lesson at the heart of TOFU. Follow the path below in order; each step unlocks the next. Every result opens its full transcript so you can see which field was the smoking gun.</p>
 			</div>
 		</div>
+		<nav id="scenario-path" class="scenario-path" aria-label="Guided scenario path"></nav>
 		<div id="scenario-buttons" class="ssh-scenario-buttons"></div>
 		<div id="scenario-output" class="ssh-output ssh-scenario-output" aria-live="polite"></div>
 		<div id="scenario-log" class="ssh-scenario-log" aria-live="polite"></div>
 	`;
 
+	const pathBox = section.querySelector<HTMLElement>('#scenario-path')!;
 	const buttons = section.querySelector<HTMLElement>('#scenario-buttons')!;
 	const output = section.querySelector<HTMLElement>('#scenario-output')!;
 	const log = section.querySelector<HTMLElement>('#scenario-log')!;
 	const logLines: string[] = [];
+
+	// A narrated path so the disabled-button prerequisites read as a sequence,
+	// not dead-ends. Each step is done / current (the next actionable one) / to-do.
+	function renderPath(): void {
+		const pinned = state.client.knownHosts.has(HOST_NAME);
+		const steps: { label: string; done: boolean }[] = [
+			{ label: 'Start server', done: !!state.server },
+			{ label: 'Connect (TOFU)', done: state.didTofuConnect },
+			{ label: 'Reconnect (match)', done: pinned },
+			{ label: 'MITM after pin', done: state.didMitmAfter },
+			{ label: 'MITM on first contact', done: false },
+		];
+		let currentAssigned = false;
+		pathBox.innerHTML = steps
+			.map((s, i) => {
+				let cls = 'scenario-path-step';
+				let state2 = 'to do';
+				if (s.done) { cls += ' is-done'; state2 = 'done'; }
+				else if (!currentAssigned) { cls += ' is-current'; state2 = 'do this next'; currentAssigned = true; }
+				const sep = i < steps.length - 1 ? '<span class="scenario-path-sep" aria-hidden="true">→</span>' : '';
+				return `<span class="${cls}"><span class="scenario-path-num" aria-hidden="true">${i + 1}</span><span class="scenario-path-label">${s.label}</span><span class="scenario-path-state">${state2}</span></span>${sep}`;
+			})
+			.join('');
+	}
 
 	state.logScenario = (msg: string) => {
 		const stamp = new Date().toLocaleTimeString();
@@ -963,6 +1239,7 @@ function renderScenariosSection(state: AppState): HTMLElement {
 	};
 
 	function refresh(): void {
+		renderPath();
 		if (!state.server) {
 			buttons.innerHTML = `<p class="panel-copy ssh-empty">Start the server first.</p>`;
 			output.innerHTML = '';
@@ -1029,6 +1306,8 @@ async function scenarioMitmAfter(state: AppState, output: HTMLElement): Promise<
 			? 'MITM after pinning: known_hosts caught the substituted host key. Connection refused. This is the protection working.'
 			: `MITM after pinning gave an unexpected decision: ${result.hostKeyDecision}.`,
 	);
+	state.didMitmAfter = true;
+	state.rerenderSetup();
 	state.rerenderConnect();
 }
 
@@ -1309,7 +1588,11 @@ function renderScenarioResult(
 				<span class="handshake-decision ${decisionAccent(result.hostKeyDecision)}">${decisionLabel(result.hostKeyDecision)}</span>
 			</div>
 			${attackerLine}
-			<ol class="handshake-step-list">${stepLis}</ol>
+			${renderSequenceDiagram(result)}
+			<details class="step-list-details">
+				<summary>Step-by-step detail (the same flow, as a checklist)</summary>
+				<ol class="handshake-step-list">${stepLis}</ol>
+			</details>
 			${decisionBanner(result)}
 			<p class="handshake-summary">${result.summary}</p>
 			<div class="transcript-actions">
@@ -1551,6 +1834,8 @@ export function mountApp(root: HTMLDivElement): void {
 		lastTranscript: null,
 		pending: null,
 		pendingLabel: '',
+		didTofuConnect: false,
+		didMitmAfter: false,
 		rerenderSetup: () => {},
 		rerenderConnect: () => {},
 		rerenderScenarios: () => {},

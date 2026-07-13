@@ -304,3 +304,57 @@ export async function makeMitm(displayName: string): Promise<{ respond: (c: Json
         identity: attacker.publicIdentity(),
     };
 }
+
+// =====================================================================
+// Teaching helpers: recompute the exchange hash H over an arbitrary set of
+// inputs, and verify a captured host signature against a hash. These call the
+// SAME real primitives the handshake uses — nothing is faked. The exchange-hash
+// "binding" exhibit uses these so a learner can mutate one input tile and watch
+// the real H change and the real signature verification flip to FAIL.
+// =====================================================================
+
+// The five wire-format inputs that the exchange hash commits to. Anything the
+// exhibit lets the learner mutate is one of these.
+export interface ExchangeHashInputs {
+    hostName: string;
+    hostPubJwk: JsonWebKey;
+    clientEphJwk: JsonWebKey;
+    serverEphJwk: JsonWebKey;
+    sharedSecretB64: string; // base64 of the raw derived secret bits
+}
+
+// Recompute H exactly as the server/client do. Real SHA-256 over the real
+// canonical wire encoding — the only difference from the private exchangeHash()
+// is that this takes the shared secret as base64 (what the transcript carries).
+export async function recomputeExchangeHash(inputs: ExchangeHashInputs): Promise<string> {
+    await init();
+    return exchangeHash(
+        inputs.hostName,
+        inputs.hostPubJwk,
+        inputs.clientEphJwk,
+        inputs.serverEphJwk,
+        unb64(inputs.sharedSecretB64).buffer as ArrayBuffer,
+    );
+}
+
+// Verify a captured base64 host signature against a hash string, using the
+// captured host public key. Returns true only if the real Web Crypto verify
+// succeeds — exactly the check the client runs in step 4 of connect().
+export async function verifyHostSignature(
+    hostPubJwk: JsonWebKey,
+    hashHex: string,
+    signatureB64: string,
+): Promise<boolean> {
+    await init();
+    try {
+        const hostKey = await crypto.subtle.importKey('jwk', hostPubJwk, SIG_ALGO, false, ['verify']);
+        return crypto.subtle.verify(
+            SIG_PARAMS,
+            hostKey,
+            unb64(signatureB64) as BufferSource,
+            enc.encode(hashHex) as BufferSource,
+        );
+    } catch {
+        return false;
+    }
+}
