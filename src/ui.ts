@@ -802,7 +802,7 @@ function renderCaCard(state: AppState): string {
 			<p class="host-card-name">${id.name}</p>
 			<p class="host-card-fp"><span class="fp-tag">${caAlgo()}</span><code>${id.fingerprint}</code></p>
 			<p class="panel-copy">CA trust state: ${state.caTrusted ? '<strong>trusted (@cert-authority pinned)</strong>' : '<strong>not yet trusted</strong>'}.</p>
-			<h4 class="ssh-section-h ca-cert-h">Host certificate</h4>
+			<h3 class="ssh-section-h ca-cert-h">Host certificate</h3>
 			${certInfo}
 			<div class="pending-actions">
 				<button id="ca-trust" class="tab-button" type="button">${state.caTrusted ? 'Untrust CA' : 'Trust CA (@cert-authority)'}</button>
@@ -1852,7 +1852,10 @@ export function mountApp(root: HTMLDivElement): void {
 	shell.appendChild(renderConceptsSection());
 	shell.appendChild(renderRealWorldSection());
 	shell.appendChild(renderScopeSection());
-	shell.appendChild(renderFooter());
+
+	// The page footer sits outside <main> so it is a real contentinfo landmark.
+	const pageFooter = renderFooter();
+	pageFooter.classList.add('page-footer');
 
 	// Deep-link: ?scenario=<id> auto-triggers a scenario after the page mounts.
 	// Server is auto-started so the linked scenario can actually run.
@@ -1910,5 +1913,5 @@ export function mountApp(root: HTMLDivElement): void {
 		);
 	});
 
-	root.replaceChildren(shell);
+	root.replaceChildren(shell, pageFooter);
 }
