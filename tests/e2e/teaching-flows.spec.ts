@@ -174,22 +174,66 @@ test.describe('exchange-hash binding lab', () => {
 	});
 });
 
-test.describe('forward secrecy vs authentication toggle', () => {
-	test('auth OFF lets a MITM connect; auth ON catches it', async ({ page }) => {
+test.describe('what actually catches a MITM', () => {
+	// The exhibit's whole point is that signature verification does NOT stop a
+	// MITM against a client with no pin: the attacker presents its own host key
+	// and signs the real exchange hash with the matching private key, so the
+	// signature is genuinely VALID and the connection still succeeds. Only the
+	// known_hosts comparison rejects it. These assertions fail if the page ever
+	// goes back to claiming the signature check catches the impostor.
+	test('KEX only lets the MITM in', async ({ page }) => {
 		await startServer(page);
 		await page.click('.mode-pill[data-mode="accept-new"]');
 		await page.click('#connect-btn');
 		const lab = page.locator('.auth-lab');
 		await expect(lab).toBeVisible();
 		await lab.locator('> summary').click();
-		// Auth OFF: KEX still agrees, MITM connects silently.
-		await lab.locator('#auth-verify').uncheck();
+		await lab.locator('#auth-level-kex').check();
 		await lab.locator('#auth-run').click();
-		await expect(lab.locator('.auth-lab-out')).toContainText('connected silently');
-		// Auth ON: same MITM rejected.
-		await lab.locator('#auth-verify').check();
+		const out = lab.locator('.auth-lab-out');
+		await expect(out).toContainText('MITM connected');
+		// Nothing was checked, and the verdict is styled as the failure it is.
+		await expect(out.locator('.ssh-warning--bad')).toBeVisible();
+		await expect(out.locator('.ssh-warning--good')).toHaveCount(0);
+	});
+
+	test('adding signature verification does NOT stop the MITM — the signature is valid', async ({ page }) => {
+		await startServer(page);
+		await page.click('.mode-pill[data-mode="accept-new"]');
+		await page.click('#connect-btn');
+		const lab = page.locator('.auth-lab');
+		await lab.locator('> summary').click();
+		await lab.locator('#auth-level-sig').check();
 		await lab.locator('#auth-run').click();
-		await expect(lab.locator('.auth-lab-out')).toContainText('MITM rejected');
+		const out = lab.locator('.auth-lab-out');
+		// The host-signature row must report a genuinely VALID signature...
+		await expect(out.locator('.auth-outcome-rows li').nth(1)).toContainText('VALID');
+		await expect(out.locator('.auth-outcome-rows li').nth(1)).not.toContainText('INVALID');
+		// ...and the attacker must still be reported as connected, in a bad-styled box.
+		await expect(out).toContainText('MITM connected');
+		await expect(out.locator('.ssh-warning--bad')).toBeVisible();
+		await expect(out).not.toContainText('MITM rejected');
+		// The fingerprints really are compared, and really do differ.
+		await expect(out.locator('.auth-fp-verdict')).toContainText('Different keys');
+	});
+
+	test('the known_hosts pin is what rejects the MITM', async ({ page }) => {
+		await startServer(page);
+		await page.click('.mode-pill[data-mode="accept-new"]');
+		await page.click('#connect-btn');
+		const lab = page.locator('.auth-lab');
+		await lab.locator('> summary').click();
+		await lab.locator('#auth-level-pin').check();
+		await lab.locator('#auth-run').click();
+		const out = lab.locator('.auth-lab-out');
+		await expect(out).toContainText('MITM rejected');
+		await expect(out).toContainText('known_hosts caught the substituted host key');
+		// The known_hosts row is the one that fired — the signature still verified.
+		await expect(out.locator('.auth-outcome-rows li').nth(2)).toContainText('CHANGED');
+		await expect(out.locator('.auth-outcome-rows li').nth(1)).toContainText('VALID');
+		// A refusal is styled as the protection working, never as a failure.
+		await expect(out.locator('.ssh-warning--good')).toBeVisible();
+		await expect(out.locator('.ssh-warning--bad')).toHaveCount(0);
 	});
 });
 

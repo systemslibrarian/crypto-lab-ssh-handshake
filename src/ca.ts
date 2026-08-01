@@ -5,6 +5,8 @@
 //
 // Lives outside engine.ts so engine.ts stays verbatim from Appendix A.
 
+import { sshFingerprint, sshKeyTypeFromSigAlgo, sshPublicKeyBlob } from './wire.ts';
+
 const enc = new TextEncoder();
 
 let SIG_ALGO: EcKeyGenParams | { name: 'Ed25519' };
@@ -43,10 +45,24 @@ function unb64(s: string): Uint8Array {
 	for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
 	return out;
 }
+// Fingerprint in OpenSSH's exact format: SHA-256 over the CANONICAL SSH
+// wire-format public-key blob (RFC 4253 §6.6 / RFC 8709 §4), base64 with the
+// trailing '=' stripped — byte-for-byte what `ssh-keygen -lf` prints.
+//
+// This deliberately shares wire.ts with engine.ts's host-key fingerprint. An
+// earlier version hashed the ASCII of the base64url JWK coordinates
+// ((jwk.x + jwk.y) as text), which produced a well-formed-looking "SHA256:…"
+// string that matched no real tool and disagreed with every other SHA256: on
+// the page. Every `SHA256:` this demo shows now means the same thing.
 async function fingerprint(pubJwk: JsonWebKey): Promise<string> {
-	const material = (pubJwk.x ?? '') + (pubJwk.y ?? '');
-	const d = await crypto.subtle.digest('SHA-256', enc.encode(material) as BufferSource);
-	return 'SHA256:' + b64(d).replace(/=+$/, '');
+	await init();
+	return sshFingerprint(sshPublicKeyBlob(pubJwk, caAlgoName));
+}
+
+// Kept alongside fingerprint() so the CA's key type is always named with the
+// same string the wire encoder used to build the blob we hashed.
+export function caKeyType(): string {
+	return sshKeyTypeFromSigAlgo(caAlgoName);
 }
 
 // OpenSSH host certificate — same field set as PROTOCOL.certkeys (nonce,

@@ -43,8 +43,9 @@ test('no WCAG A/AA violations in light theme', async ({ page }) => {
 	await scan(page);
 });
 
-// The sequence diagram, exchange-hash binding lab, and the forward-secrecy
-// toggle only render after a handshake runs — scan them too, in both themes.
+// The sequence diagram, exchange-hash binding lab, and the "what actually
+// catches a MITM" lab only render after a handshake runs — scan them too, in
+// both themes.
 async function connectAndExercise(page: Page): Promise<void> {
 	await page.goto('./');
 	await page.click('#start-btn');
@@ -54,9 +55,10 @@ async function connectAndExercise(page: Page): Promise<void> {
 	// Mutate a hash-lab tile so the FAIL verdict styling is on screen.
 	await page.locator('.hlab-swap').first().click();
 	await expect(page.locator('.hlab-verdict--fail')).toBeVisible();
-	// Run the forward-secrecy toggle with auth OFF so its warning renders.
+	// Run the MITM lab at the pin level so the "rejected" (good) warning styling
+	// is on screen alongside the fingerprint comparison block.
 	await page.locator('.auth-lab > summary').click();
-	await page.uncheck('#auth-verify');
+	await page.check('#auth-level-pin');
 	await page.click('#auth-run');
 	await expect(page.locator('.auth-lab-out .ssh-warning')).toBeVisible();
 }

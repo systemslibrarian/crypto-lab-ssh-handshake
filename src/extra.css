@@ -472,6 +472,19 @@
   color: var(--accent-3);
 }
 
+/* The protection working: a check refused a connection it should refuse. */
+.ssh-warning--good {
+  background: rgba(19, 111, 99, 0.1);
+  border-color: rgba(19, 111, 99, 0.24);
+  color: var(--accent-4);
+}
+
+[data-theme="dark"] .ssh-warning--good {
+  background: rgba(61, 217, 196, 0.1);
+  border-color: rgba(61, 217, 196, 0.22);
+  color: var(--accent-4);
+}
+
 /* Guided scenario path ribbon */
 .scenario-path {
   display: flex;
@@ -1386,20 +1399,45 @@ code {
 }
 
 /* ============================================================= */
-/* Forward-secrecy vs authentication toggle                      */
+/* "What actually catches a MITM" — layered client checks        */
 /* ============================================================= */
+.auth-lab-levels {
+  margin: 6px 0 12px;
+  padding: 10px 14px 4px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.auth-lab-legend {
+  padding: 0 6px;
+  font-family: var(--mono);
+  font-size: 0.78rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+
 .auth-lab-toggle {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   margin: 6px 0 12px;
-  font-family: var(--mono);
+  font-family: var(--sans);
   font-size: 0.88rem;
+  line-height: 1.5;
   color: var(--ink-strong);
   cursor: pointer;
 }
 
-.auth-lab-toggle input { width: 20px; height: 20px; }
+.auth-lab-toggle input {
+  width: 20px;
+  height: 20px;
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
+.auth-lab-toggle strong { font-family: var(--mono); }
 
 .auth-lab-out { margin-top: 14px; }
 
@@ -1427,6 +1465,40 @@ code {
 .auth-row-label {
   font-family: var(--mono);
   font-size: 0.86rem;
+  color: var(--ink-strong);
+}
+
+/* The comparison known_hosts exists to make, shown side by side. */
+.auth-fp-compare {
+  margin-top: 12px;
+  padding: 12px 14px;
+  border: 1px solid var(--line);
+  border-radius: 14px;
+  background: var(--panel);
+}
+
+.auth-fp-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 10px;
+  margin: 0 0 6px;
+}
+
+.auth-fp-label {
+  font-family: var(--sans);
+  font-size: 0.8rem;
+  color: var(--ink-soft);
+  min-width: 15rem;
+}
+
+.auth-fp-row code { overflow-wrap: anywhere; }
+
+.auth-fp-verdict {
+  margin: 8px 0 0;
+  font-family: var(--sans);
+  font-size: 0.86rem;
+  line-height: 1.5;
   color: var(--ink-strong);
 }
 

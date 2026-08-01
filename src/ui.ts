@@ -34,7 +34,7 @@ import {
 	publishSshfp,
 	verifySshfp,
 } from './sshfp.ts';
-import { HostCA, verifyCert, caAlgo, type HostCert } from './ca.ts';
+import { HostCA, verifyCert, caAlgo, caKeyType, type HostCert } from './ca.ts';
 import { sshKeyTypeFromSigAlgo, sshfpRecord, sshPublicKeyBlob } from './wire.ts';
 import {
 	CITATIONS,
@@ -301,7 +301,7 @@ function renderConnectSection(state: AppState): HTMLElement {
 			<div>
 				<p class="section-kicker">Section · 2</p>
 				<h2 id="connect-heading">Connect</h2>
-				<p class="panel-copy">Run the handshake and watch it play out as a <strong>conversation between two parties</strong>: the client's ephemeral key flies right, the server's hello (ephemeral key + host key + signature) flies left, and each message resolves OK or FAIL. Below the flow you can pull apart the two ideas people conflate — open the <em>exchange-hash binding</em> lab to swap a field and watch the signature break, and the <em>forward secrecy vs authentication</em> toggle to feel why sharing a secret is not the same as knowing who you shared it with.</p>
+				<p class="panel-copy">Run the handshake and watch it play out as a <strong>conversation between two parties</strong>: the client's ephemeral key flies right, the server's hello (ephemeral key + host key + signature) flies left, and each message resolves OK or FAIL. Below the flow you can pull apart the two ideas people conflate — open the <em>exchange-hash binding</em> lab to swap a field and watch the signature break, and the <em>what actually catches a MITM</em> lab to enable the client's checks one at a time and see that a valid host signature is not, by itself, enough to keep an attacker out.</p>
 			</div>
 		</div>
 		<fieldset class="ssh-mode" aria-describedby="mode-help">
@@ -430,7 +430,7 @@ function renderConnectSection(state: AppState): HTMLElement {
 			resultBox.innerHTML = '';
 		}
 		mountHashLab(hashLabBox, state.lastTranscript);
-		mountAuthToggleLab(authLabBox);
+		mountAuthToggleLab(authLabBox, state);
 		pinsBox.replaceChildren(renderKnownHosts(state));
 	}
 
@@ -631,61 +631,111 @@ function renderConnectSection(state: AppState): HTMLElement {
 	return section;
 }
 
-// ---------- Forward secrecy vs. authentication toggle -----------------------
+// ---------- What actually catches a MITM ------------------------------------
 //
-// Newcomers conflate "we share a secret" with "we know who we're talking to".
-// ECDH gives you the first for free — even with a man-in-the-middle. Only the
-// host signature gives you the second. This exhibit runs a REAL handshake
-// against a fresh MITM and lets the learner flip host-key authentication off:
-// with it OFF, KEX still agrees a secret and the MITM connects silently; with
-// it ON, the exact same MITM is caught. The crypto is unchanged — the toggle
-// only decides whether the client's signature/identity check is consulted,
-// which is precisely the difference between forward secrecy and authentication.
-function mountAuthToggleLab(container: HTMLElement): void {
+// Newcomers collapse three different questions into one:
+//   1. can we agree a secret?          — ephemeral ECDH
+//   2. does the peer hold the private
+//      key for the key it just showed
+//      me?                              — the host signature over H
+//   3. is that key the one belonging to
+//      the host I meant to reach?       — known_hosts
+//
+// Only (3) catches a man-in-the-middle. A fresh MITM presents its OWN host key
+// and signs the real exchange hash with the matching private key, so its
+// signature is genuinely valid — (2) passes. This exhibit runs a REAL handshake
+// against a REAL fresh MITM at each of the three levels and lets the learner
+// watch the signature come back VALID while the connection is still owned by
+// the attacker, until a pin is in play.
+//
+// The crypto is identical at all three levels; the level only selects which
+// fields of the returned ConnectResult the client consults. Every badge, CSS
+// class and verdict string below is derived from that ConnectResult and from a
+// real fingerprint comparison against the running server — never from the
+// control the learner clicked.
+type AuthLevel = 'kex' | 'sig' | 'pin';
+
+const AUTH_LEVELS: { id: AuthLevel; label: string; hint: string }[] = [
+	{
+		id: 'kex',
+		label: 'KEX only',
+		hint: 'Agree an ephemeral ECDH secret and stop. Never look at who signed anything.',
+	},
+	{
+		id: 'sig',
+		label: 'KEX + signature',
+		hint: 'Also verify the host signature over the exchange hash H.',
+	},
+	{
+		id: 'pin',
+		label: 'KEX + signature + known_hosts pin',
+		hint: 'Also compare the presented host key against the fingerprint this client already pinned for the real host.',
+	},
+];
+
+// These survive the re-mount that happens on every connect/refresh.
+let authLabLevel: AuthLevel = 'kex';
+let authLabOpen = false;
+
+function mountAuthToggleLab(container: HTMLElement, state: AppState): void {
 	container.innerHTML = `
-		<details class="auth-lab">
-			<summary>Forward secrecy vs. authentication — toggle the host signature</summary>
-			<p class="hlab-intro">Ephemeral ECDH and the host signature do two <em>different</em> jobs. Turn host-key authentication off and run a man-in-the-middle: KEX still agrees a shared secret with the attacker (forward secrecy is intact) and the connection succeeds — because nothing checked <em>who</em> the key belongs to. Turn it back on and the same MITM is caught.</p>
-			<label class="auth-lab-toggle">
-				<input type="checkbox" id="auth-verify" checked />
-				<span id="auth-verify-text">Host-key authentication: <strong>ON</strong> — verify the signature over H (real SSH)</span>
-			</label>
+		<details class="auth-lab"${authLabOpen ? ' open' : ''}>
+			<summary>What actually catches a MITM — enable the client's checks one at a time</summary>
+			<p class="hlab-intro">Ephemeral ECDH, the host signature, and <code>known_hosts</code> answer three <em>different</em> questions, and only the last one is about identity. Pick how much checking the client does, then run a real man-in-the-middle against it. Watch what happens at <strong>KEX + signature</strong>: the signature comes back <strong>VALID</strong> and the attacker is still in the session — because it signed its own host key, and a valid signature over an unknown key proves nothing about <em>whose</em> key it is.</p>
+			<fieldset class="auth-lab-levels">
+				<legend class="auth-lab-legend">Checks the client performs</legend>
+				${AUTH_LEVELS.map(
+					(l) => `
+				<label class="auth-lab-toggle">
+					<input type="radio" name="auth-level" id="auth-level-${l.id}" value="${l.id}"${authLabLevel === l.id ? ' checked' : ''} />
+					<span><strong>${l.label}</strong> — ${l.hint}</span>
+				</label>`,
+				).join('')}
+			</fieldset>
 			<div class="auth-lab-actions">
-				<button type="button" id="auth-run" class="tab-button">Run a MITM against this setting</button>
+				<button type="button" id="auth-run" class="tab-button">Run a MITM against these checks</button>
 			</div>
 			<div id="auth-lab-out" class="auth-lab-out" role="status" aria-live="polite"></div>
 		</details>`;
 
-	const verifyBox = container.querySelector<HTMLInputElement>('#auth-verify')!;
-	const verifyText = container.querySelector<HTMLElement>('#auth-verify-text')!;
+	const details = container.querySelector<HTMLDetailsElement>('.auth-lab')!;
 	const runBtn = container.querySelector<HTMLButtonElement>('#auth-run')!;
 	const out = container.querySelector<HTMLElement>('#auth-lab-out')!;
 
-	verifyBox.addEventListener('change', () => {
-		verifyText.innerHTML = verifyBox.checked
-			? 'Host-key authentication: <strong>ON</strong> — verify the signature over H (real SSH)'
-			: 'Host-key authentication: <strong>OFF</strong> — ECDH only, skip the identity check';
+	details.addEventListener('toggle', () => {
+		authLabOpen = details.open;
+	});
+
+	container.querySelectorAll<HTMLInputElement>('input[name="auth-level"]').forEach((radio) => {
+		radio.addEventListener('change', () => {
+			if (radio.checked) authLabLevel = radio.value as AuthLevel;
+		});
 	});
 
 	runBtn.addEventListener('click', () => {
 		void (async () => {
+			const server = state.server;
+			if (!server) {
+				out.innerHTML = `<p class="panel-copy ssh-empty">Start the server first — the pin level needs a real host to compare against.</p>`;
+				return;
+			}
 			runBtn.disabled = true;
-			out.innerHTML = `<p class="panel-copy ssh-empty">Running handshake against a man-in-the-middle…</p>`;
+			out.innerHTML = `<p class="panel-copy ssh-empty">Running a real handshake against a man-in-the-middle…</p>`;
 			try {
-				// A fresh client with no pins, so known_hosts is out of the picture
-				// and we isolate the authentication question. The MITM signs with
-				// ITS OWN host key — a real, valid signature over a real H.
-				const freshClient = new SshClient();
+				const level = authLabLevel;
+				const realHost = server.publicIdentity();
+				// A fresh client each run, so the ONLY thing that differs between
+				// the three levels is which checks are consulted. At the `pin`
+				// level the client starts out already holding the REAL host's
+				// fingerprint, as it would after an earlier verified connection.
+				const client = new SshClient();
+				if (level === 'pin') {
+					client.knownHosts.set(HOST_NAME, new Map([[algoNames().sig, realHost.fingerprint]]));
+				}
 				const attacker = await makeMitm(HOST_NAME);
 				const tap = tapResponder(HOST_NAME, attacker, algoNames());
-				const result = await freshClient.connect(HOST_NAME, tap);
-				// The engine ran the true handshake. sharedAgrees is the KEX result;
-				// signatureValid is the authentication result. "Auth off" means we
-				// ignore the identity check — exactly what makes a MITM succeed.
-				const authOn = verifyBox.checked;
-				const kexOk = result.sharedAgrees;
-				const connected = authOn ? (kexOk && result.signatureValid && result.connected) : kexOk;
-				out.innerHTML = renderAuthOutcome(authOn, kexOk, connected, attacker.identity.fingerprint);
+				const result = await client.connect(HOST_NAME, tap);
+				out.innerHTML = renderAuthOutcome(level, result, attacker.identity.fingerprint, realHost.fingerprint);
 			} catch (err) {
 				out.innerHTML = `<p class="panel-copy ssh-empty">Failed: ${(err as Error).message}</p>`;
 			} finally {
@@ -695,28 +745,114 @@ function mountAuthToggleLab(container: HTMLElement): void {
 	});
 }
 
-function renderAuthOutcome(authOn: boolean, kexOk: boolean, connected: boolean, presentedFp: string): string {
-	const kexBadge = kexOk ? 'OK' : 'FAIL';
-	const kexCls = kexOk ? 'scenario-status--valid' : 'scenario-status--invalid';
-	// The MITM presents its OWN key. With authentication on, the client would
-	// need this key to match the expected host — it doesn't, so from the honest
-	// server's standpoint this is an impostor. The MITM's signature over its own
-	// H is internally valid, but it authenticates the ATTACKER, not the host.
-	const authCls = authOn ? 'scenario-status--invalid' : 'scenario-status--pending';
-	const authBadge = authOn ? 'IMPOSTOR' : 'NOT CHECKED';
-	const verdictCls = connected ? 'ssh-warning--bad' : 'ssh-warning--pending';
-	const verdict = authOn
-		? `<p class="ssh-warning-title">MITM rejected — authentication did its job</p>
-		   <p class="ssh-warning-body">Forward secrecy alone (ECDH) happily agreed a secret with the attacker. But the host signature is tied to a specific identity, and this responder is not the host you meant to reach — so verifying it <strong>catches the impostor</strong>. Shared secret ≠ known peer; the signature is what closes that gap.</p>`
-		: `<p class="ssh-warning-title">MITM connected silently — no one checked identity</p>
-		   <p class="ssh-warning-body">With host-key authentication off, the handshake only asked “can we agree a secret?” — and ECDH answered yes, <strong>even with a man-in-the-middle</strong>. The attacker now shares an encrypted channel with you while impersonating <code>${HOST_NAME}</code>. Forward secrecy protected the secret; nothing protected <em>who you gave it to</em>. Presented key: <code>${presentedFp}</code>.</p>`;
+function renderAuthOutcome(
+	level: AuthLevel,
+	result: ConnectResult,
+	presentedFp: string,
+	realFp: string,
+): string {
+	// Ground truth, COMPUTED rather than asserted: is the responder actually the
+	// host we meant to reach? This is precisely the comparison known_hosts
+	// exists to make, and nothing in the handshake itself performs it.
+	const isImpostor = presentedFp !== realFp;
+
+	const sigConsulted = level !== 'kex';
+	const pinConsulted = level === 'pin';
+
+	// The client's verdict, assembled only from fields the engine returned.
+	const kexOk = result.sharedAgrees;
+	const sigOk = result.signatureValid;
+	const pinOk = result.hostKeyDecision === 'matches-known';
+	const accepted = kexOk && (!sigConsulted || sigOk) && (!pinConsulted || pinOk);
+
+	const badge = (cls: string, text: string): string =>
+		`<span class="handshake-step-badge ${cls}">${text}</span>`;
+
+	const kexBadge = badge(
+		kexOk ? 'scenario-status--valid' : 'scenario-status--invalid',
+		kexOk ? 'AGREED' : 'FAIL',
+	);
+	const sigBadge = !sigConsulted
+		? badge('scenario-status--pending', 'NOT CHECKED')
+		: badge(
+				sigOk ? 'scenario-status--valid' : 'scenario-status--invalid',
+				sigOk ? 'VALID' : 'INVALID',
+			);
+	// Derived from the engine's own known_hosts decision in every case.
+	let pinBadge: string;
+	if (result.hostKeyDecision === 'matches-known') {
+		pinBadge = badge('scenario-status--valid', 'MATCHES PIN');
+	} else if (result.hostKeyDecision === 'CHANGED-REJECTED') {
+		pinBadge = badge('scenario-status--invalid', 'CHANGED — REJECTED');
+	} else if (result.hostKeyDecision === 'tofu-pinned') {
+		pinBadge = badge(
+			'scenario-status--pending',
+			pinConsulted ? 'FIRST CONTACT — PINNED' : 'NO PIN — NOTHING TO COMPARE',
+		);
+	} else {
+		pinBadge = badge('scenario-status--pending', 'UNKNOWN');
+	}
+
+	// Which consulted checks refused, in the engine's own terms.
+	const failures: string[] = [];
+	if (!kexOk) failures.push('the two sides did not derive the same ECDH secret');
+	if (sigConsulted && !sigOk) failures.push('the host signature over H did not verify');
+	if (pinConsulted && !pinOk) {
+		failures.push(
+			`<code>known_hosts</code> held <code>${realFp}</code> for <code>${HOST_NAME}</code> but the responder presented <code>${presentedFp}</code>`,
+		);
+	}
+
+	let title: string;
+	let body: string;
+	if (accepted && isImpostor) {
+		title = 'MITM connected — the attacker owns this session';
+		body = sigConsulted
+			? `The host signature <strong>verified</strong>, and that is exactly the trap. The attacker generated its own host key, presented it, and signed the real exchange hash <code>H</code> with the matching private key — so Web Crypto says the signature is valid, and it is. A valid signature proves the responder holds the private key for the key it just handed you. It says nothing about whether that key is <code>${HOST_NAME}</code>'s. With no pin to compare against, the client had nothing that could tell the difference, so trust-on-first-use pinned <em>the attacker's</em> key.`
+			: `Nothing looked at identity at all. ECDH was asked only “can we agree a secret?” and answered yes — <strong>even with a man-in-the-middle</strong>, because agreeing a secret with whoever answers is all ECDH does. The attacker now shares an encrypted channel with you while impersonating <code>${HOST_NAME}</code>. Forward secrecy protected the secret; nothing protected <em>who you gave it to</em>.`;
+	} else if (accepted) {
+		title = 'Connected — the responder was the real host';
+		body = `The responder presented the running server's own host key, so there was no impostor for these checks to catch. Re-run it to get a fresh man-in-the-middle.`;
+	} else if (pinConsulted && !pinOk) {
+		title = 'MITM rejected — known_hosts caught the substituted host key';
+		body = `The client refused because ${failures.join('; and ')}. Note what did <em>not</em> save you: the host signature ${
+			sigOk
+				? '<strong>verified perfectly well</strong> — the attacker signed its own key, and that signature is valid'
+				: 'failed'
+		}. Authenticating a <em>key</em> is not authenticating a <em>host</em>; only the pinned fingerprint ties a key to the name <code>${HOST_NAME}</code>.`;
+	} else {
+		title = 'Connection refused';
+		body = `The client refused because ${failures.join('; and ')}.`;
+	}
+
+	// Class follows the outcome, not the control: refused is good, an accepted
+	// impostor is bad, an accepted genuine host is neutral.
+	const verdictCls = !accepted
+		? 'ssh-warning--good'
+		: isImpostor
+			? 'ssh-warning--bad'
+			: 'ssh-warning--pending';
+
 	return `
 		<div class="handshake-card auth-outcome">
 			<ul class="auth-outcome-rows">
-				<li><span class="auth-row-label">ephemeral ECDH (forward secrecy)</span><span class="handshake-step-badge ${kexCls}">${kexBadge}</span></li>
-				<li><span class="auth-row-label">host-key authentication (identity)</span><span class="handshake-step-badge ${authCls}">${authBadge}</span></li>
+				<li><span class="auth-row-label">1 · ephemeral ECDH — can we agree a secret?</span>${kexBadge}</li>
+				<li><span class="auth-row-label">2 · host signature over H — does the peer hold this key?</span>${sigBadge}</li>
+				<li><span class="auth-row-label">3 · known_hosts — is this key <code>${HOST_NAME}</code>'s?</span>${pinBadge}</li>
 			</ul>
-			<div class="ssh-warning ${verdictCls}" role="alert">${verdict}</div>
+			<div class="auth-fp-compare">
+				<p class="auth-fp-row"><span class="auth-fp-label">real host (the server running on this page)</span><code>${realFp}</code></p>
+				<p class="auth-fp-row"><span class="auth-fp-label">presented by the responder</span><code>${presentedFp}</code></p>
+				<p class="auth-fp-verdict">${
+					isImpostor
+						? 'Different keys — the responder is not the host you meant to reach. Check 3 is the only step above that performs this comparison.'
+						: 'Same key — the responder really is the host you meant to reach.'
+				}</p>
+			</div>
+			<div class="ssh-warning ${verdictCls}" role="alert">
+				<p class="ssh-warning-title">${title}</p>
+				<p class="ssh-warning-body">${body}</p>
+			</div>
 		</div>`;
 }
 
@@ -800,7 +936,7 @@ function renderCaCard(state: AppState): string {
 		<div class="host-card sshfp-card">
 			<p class="host-card-label">OpenSSH @cert-authority CA</p>
 			<p class="host-card-name">${id.name}</p>
-			<p class="host-card-fp"><span class="fp-tag">${caAlgo()}</span><code>${id.fingerprint}</code></p>
+			<p class="host-card-fp" title="SHA-256 over the canonical ${caKeyType()} wire blob — the same value ssh-keygen -lf prints, and the same construction used for host-key fingerprints elsewhere on this page."><span class="fp-tag">${caAlgo()}</span><code>${id.fingerprint}</code></p>
 			<p class="panel-copy">CA trust state: ${state.caTrusted ? '<strong>trusted (@cert-authority pinned)</strong>' : '<strong>not yet trusted</strong>'}.</p>
 			<h3 class="ssh-section-h ca-cert-h">Host certificate</h3>
 			${certInfo}
@@ -1469,24 +1605,31 @@ async function scenarioRogueCa(state: AppState, output: HTMLElement): Promise<vo
 		HOST_NAME,
 		attacker.identity.hostPubJwk,
 	);
+	// Every field below is derived from `verdict` — the real output of verifyCert
+	// two lines above — so if the CA path ever started accepting a rogue cert,
+	// this panel would say so instead of printing a fixed "REJECTED".
 	const result: ConnectResult = {
 		...engineResult,
-		hostKeyDecision: 'CHANGED-REJECTED',
-		connected: false,
-		summary: 'REJECTED — rogue CA cert does not verify under the trusted CA. The attacker can mint certs but not under your trust anchor.',
+		hostKeyDecision: verdict.valid ? 'matches-known' : 'CHANGED-REJECTED',
+		connected: verdict.valid && engineResult.signatureValid && engineResult.sharedAgrees,
+		summary: verdict.valid
+			? 'CONNECTED — the rogue cert verified under the trusted CA. That must not happen: the trust anchor has been compromised or the CA check is broken.'
+			: 'REJECTED — rogue CA cert does not verify under the trusted CA. The attacker can mint certs but not under your trust anchor.',
 		steps: [
 			...engineResult.steps.slice(0, -1),
 			{
-				label: '@cert-authority (rejected)',
+				label: verdict.valid ? '@cert-authority (accepted)' : '@cert-authority (rejected)',
 				detail: verdict.reason,
-				ok: false,
+				ok: verdict.valid,
 			},
 		],
 	};
 	output.innerHTML = renderScenarioResult(result, 'Attack · Rogue CA signs the attacker\'s host', attacker.identity, 'rogue-ca')
 		+ renderTranscript(tap.transcript, result);
 	state.logScenario(
-		'Rogue CA: a different CA signed the attacker\'s host. The cert is well-formed but the client\'s @cert-authority list does not include the rogue CA — rejected.',
+		verdict.valid
+			? `Rogue CA: the rogue cert UNEXPECTEDLY verified under the trusted CA (${verdict.reason}). That is a bug, not a lesson.`
+			: `Rogue CA: a different CA signed the attacker's host. The cert is well-formed but the client's @cert-authority list does not include the rogue CA — rejected (${verdict.reason}).`,
 	);
 }
 
