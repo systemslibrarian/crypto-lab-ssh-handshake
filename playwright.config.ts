@@ -18,7 +18,11 @@ export default defineConfig({
 		{ name: 'chromium', use: { ...devices['Desktop Chrome'] } },
 	],
 	webServer: {
-		command: 'npm run preview -- --port 4214 --strictPort --host 127.0.0.1',
+		// Build before previewing: `preview` only serves whatever is already in
+		// dist/, so without the build a failing compile leaves the previous good
+		// bundle on disk and the suite passes green against source that no longer
+		// compiles — which silently invalidates mutation checking.
+		command: 'npm run build && npm run preview -- --port 4214 --strictPort --host 127.0.0.1',
 		url: 'http://127.0.0.1:4214/crypto-lab-ssh-handshake/',
 		reuseExistingServer: !process.env.CI,
 		timeout: 60_000,
