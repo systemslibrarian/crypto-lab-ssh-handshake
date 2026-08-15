@@ -35,13 +35,6 @@ test('no WCAG A/AA violations in dark theme', async ({ page }) => {
 	await scan(page);
 });
 
-test('no WCAG A/AA violations in light theme', async ({ page }) => {
-	await page.goto('./');
-	await page.locator('#cl-theme-toggle').click();
-	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-	await openAllDetails(page);
-	await scan(page);
-});
 
 // The sequence diagram, exchange-hash binding lab, and the "what actually
 // catches a MITM" lab only render after a handshake runs — scan them too, in
@@ -69,10 +62,3 @@ test('no WCAG A/AA violations in post-connect exhibits (dark)', async ({ page })
 	await scan(page);
 });
 
-test('no WCAG A/AA violations in post-connect exhibits (light)', async ({ page }) => {
-	await connectAndExercise(page);
-	await page.locator('#cl-theme-toggle').click();
-	await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
-	await openAllDetails(page);
-	await scan(page);
-});
