@@ -54,6 +54,9 @@ local focused checks; it does not replace the full browser gate.
 The browser gate checks first contact, changed-key rejection, and explicit
 pin-replacement recovery at 320px, 380px, and desktop width, including complete
 fingerprint text, page reflow, and accessibility scans.
+Sequence rows reveal at full text contrast while keeping their staggered motion;
+the accessibility regression samples the actual entrance animation and includes
+an intentional low-contrast negative control. Reduced motion reveals all rows.
 
 ## Related Demos
 
@@ -81,8 +84,8 @@ Additional npm scripts:
 ```bash
 npm run build      # type-check + production build to dist/
 npm run preview    # serve the built dist/ locally
-npm test           # vitest — 40 unit tests (engine, policy, wire format, SSHFP, CA)
-npm run test:e2e   # playwright — 25 browser tests for the teaching flows + WCAG a11y gate (needs `npx playwright install chromium`)
+npm test           # vitest — engine, policy, wire format, SSHFP, CA
+npm run test:e2e   # playwright — teaching flows + WCAG a11y gate (needs `npx playwright install chromium`)
 ```
 
 No environment variables, no API keys, no servers. Everything runs client-side in the browser. The engine in `src/engine.ts` is the verbatim source from the build prompt; the only post-hoc refinement is `fingerprint()`, which now hashes the canonical OpenSSH wire-format public-key blob (via `src/wire.ts`) instead of concatenated JWK coordinates so the demo's `SHA256:` strings match what `ssh-keygen -lf` prints. The engine also exports two thin teaching helpers — `recomputeExchangeHash()` and `verifyHostSignature()` — that call the *same* real SHA-256 and Web Crypto verify the handshake uses; the exchange-hash binding lab in `src/hashlab.ts` drives them so a mutated input tile really does change `H` and really does break the captured signature (nothing there is simulated). The other modules — StrictHostKeyChecking policy in `src/policy.ts`, SSHFP registry in `src/sshfp.ts`, host CA in `src/ca.ts`, transcript capture in `src/transcript.ts` — sit on top of the engine without touching its cryptographic logic. The CA's own fingerprint goes through the same `src/wire.ts` path as the host-key fingerprint, so every `SHA256:` string on the page is the same construction — SHA-256 over the canonical OpenSSH wire blob — and means the same thing.
