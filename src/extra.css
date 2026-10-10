@@ -1141,6 +1141,8 @@ code {
 
 .seq-note-detail {
   grid-column: 1 / -1;
+  min-width: 0;
+  overflow-wrap: anywhere;
   margin: 8px 0 0;
   font-family: var(--sans);
   font-size: 0.86rem;

@@ -81,3 +81,39 @@ for (const width of [1280, 380]) {
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   });
 }
+
+for (const width of [320, 380, 1280]) {
+  test(`ordinary and recovery handshakes reflow with complete fingerprints at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('./');
+    await page.click('#start-btn');
+    await page.click('.mode-pill[data-mode="accept-new"]');
+    await page.click('#connect-btn');
+    const decision = page.locator('#connect-result .handshake-decision');
+    const details = page.locator('#connect-result .seq-note-detail').last();
+    const checkReflow = async () => {
+      const geometry = await page.evaluate(() => ({ document: document.documentElement.scrollWidth, viewport: innerWidth }));
+      expect(geometry.document).toBeLessThanOrEqual(geometry.viewport + 1);
+      await scan(page);
+    };
+    await expect(decision).toContainText('TOFU');
+    const oldPin = (await page.locator('.pin-fp').first().innerText()).trim();
+    await expect(details).toContainText(oldPin);
+    await checkReflow();
+    await page.click('#restart-btn');
+    await expect(page.locator('#restart-btn')).toBeEnabled();
+    await page.click('#connect-btn');
+    await expect(decision).toHaveText('HOST KEY CHANGED — rejected');
+    await expect(page.locator('.pin-fp').first()).toHaveText(oldPin);
+    await expect(details).toContainText(oldPin);
+    await checkReflow();
+    await page.click('#forget-btn');
+    await expect(page.locator('.pin-fp')).toHaveCount(0);
+    await page.click('#connect-btn');
+    await expect(decision).toContainText('TOFU');
+    const newPin = (await page.locator('.pin-fp').first().innerText()).trim();
+    expect(newPin).not.toBe(oldPin);
+    await expect(details).toContainText(newPin);
+    await checkReflow();
+  });
+}

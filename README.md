@@ -51,6 +51,9 @@ The shared CI/Pages build gate runs `npm test`, `npm run build`, and
 `npm run test:e2e`, which includes both the functional teaching flows and the
 accessibility specs. `npm run test:a11y` is the accessibility-only subset for
 local focused checks; it does not replace the full browser gate.
+The browser gate checks first contact, changed-key rejection, and explicit
+pin-replacement recovery at 320px, 380px, and desktop width, including complete
+fingerprint text, page reflow, and accessibility scans.
 
 ## Related Demos
 
