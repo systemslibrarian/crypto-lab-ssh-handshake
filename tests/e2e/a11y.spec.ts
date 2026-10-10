@@ -4,8 +4,7 @@ import { expect, test, type Page } from '@playwright/test';
 /**
  * WCAG regression gate. The teaching flows are already gated on browser
  * behaviour; this gates the same shipped bundle on accessibility. Scans the
- * full page with every <details> expanded, in both the dark (default) and
- * light themes.
+ * full page with every <details> expanded, in the configured dark theme.
  */
 
 const TAGS = ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'];
@@ -38,7 +37,7 @@ test('no WCAG A/AA violations in dark theme', async ({ page }) => {
 
 // The sequence diagram, exchange-hash binding lab, and the "what actually
 // catches a MITM" lab only render after a handshake runs — scan them too, in
-// both themes.
+// the configured dark theme.
 async function connectAndExercise(page: Page): Promise<void> {
 	await page.goto('./');
 	await page.click('#start-btn');

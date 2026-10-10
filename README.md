@@ -45,6 +45,13 @@ npm install
 npm run dev
 ```
 
+## Testing
+
+The shared CI/Pages build gate runs `npm test`, `npm run build`, and
+`npm run test:e2e`, which includes both the functional teaching flows and the
+accessibility specs. `npm run test:a11y` is the accessibility-only subset for
+local focused checks; it does not replace the full browser gate.
+
 ## Related Demos
 
 - [crypto-lab-pki-chain](https://systemslibrarian.github.io/crypto-lab-pki-chain/) — hierarchical X.509 CA trust, the centralized counterpart to SSH's TOFU model.
