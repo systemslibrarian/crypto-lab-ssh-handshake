@@ -61,6 +61,29 @@ test('no WCAG A/AA violations in post-connect exhibits (dark)', async ({ page })
 	await scan(page);
 });
 
+test('sequence labels retain contrast during their staggered entrance', async ({ page }) => {
+  await connectAndExercise(page);
+  await openAllDetails(page);
+  // Sample each actual shipped animation during its entrance, rather than
+  // waiting for the low-contrast fade to finish or disabling motion in the gate.
+  await page.evaluate(() => {
+    for (const row of document.querySelectorAll('.seq-row')) {
+      for (const animation of row.getAnimations()) {
+        animation.pause();
+        animation.currentTime = Number(animation.effect!.getTiming().delay) + 40;
+      }
+    }
+  });
+  await expect(page.locator('.seq-msg--left').first()).toBeVisible();
+  await scan(page);
+
+  // A genuine contrast regression must still fail the same axe rule.
+  await page.locator('.seq-msg--left').first().evaluate(el => { el.style.color = '#444444'; });
+  const negative = await new AxeBuilder({ page }).withTags(TAGS).analyze();
+  expect(negative.violations.some(v => v.id === 'color-contrast' &&
+    v.nodes.some(n => n.target.includes('.seq-msg--left')))).toBe(true);
+});
+
 
 
 for (const width of [1280, 380]) {

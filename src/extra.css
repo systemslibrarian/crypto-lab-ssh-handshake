@@ -1003,17 +1003,17 @@ code {
 .seq-row {
   position: relative;
   padding: 8px 0;
-  opacity: 0;
+  visibility: hidden;
   animation: seqIn 320ms ease forwards;
 }
 
 @keyframes seqIn {
-  from { opacity: 0; transform: translateY(6px); }
-  to { opacity: 1; transform: translateY(0); }
+  from { visibility: visible; transform: translateY(6px); }
+  to { visibility: visible; transform: translateY(0); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .seq-row { animation: none; opacity: 1; }
+  .seq-row { animation: none; visibility: visible; }
 }
 
 /* Wire rows: a horizontal track with a directional message chip. */
