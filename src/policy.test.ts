@@ -54,14 +54,31 @@ describe('connectWithPolicy', () => {
 		expect(r.result.hostKeyDecision).toBe('CHANGED-REJECTED');
 	});
 
-	it('mode=no silently accepts a changed host key (dangerous, OpenSSH parity)', async () => {
+	it('mode=no continues with restrictions without replacing the known host pin', async () => {
 		const oldServer = await SshServer.create(HOST);
 		const client = new SshClient();
 		await connectWithPolicy(client, HOST, oldServer, 'accept-new');
 		const newServer = await SshServer.create(HOST);
 		const r = await connectWithPolicy(client, HOST, newServer, 'no');
 		expect(r.connected).toBe(true);
-		expect(client.knownHosts.get(HOST)?.get(algoNames().sig)).toBe(newServer.publicIdentity().fingerprint);
+		expect(client.knownHosts.get(HOST)?.get(algoNames().sig)).toBe(oldServer.publicIdentity().fingerprint);
+        expect(r.result.hostKeyDecision).toBe('CHANGED-ALLOWED-RESTRICTED');
+        expect(r.result.restrictedCapabilities).toEqual([
+          'password authentication', 'keyboard-interactive authentication',
+          'agent forwarding', 'X11 forwarding', 'port forwarding',
+          'tunnel forwarding', 'UpdateHostkeys',
+        ]);
+        expect(r.result.summary).toMatch(/restricted.*pin retained/i);
+        expect(r.result.steps.at(-1)?.ok).toBe(false);
+        // The new key has not become trusted in any later strict-mode attempt.
+        const again = await connectWithPolicy(client, HOST, newServer, 'no');
+        expect(again.result.hostKeyDecision).toBe('CHANGED-ALLOWED-RESTRICTED');
+        const strict = await connectWithPolicy(client, HOST, newServer, 'accept-new');
+        expect(strict.connected).toBe(false);
+        expect(strict.result.hostKeyDecision).toBe('CHANGED-REJECTED');
+        const original = await connectWithPolicy(client, HOST, oldServer, 'yes');
+        expect(original.connected).toBe(true);
+        expect(original.result.hostKeyDecision).toBe('matches-known');
 	});
 
 	it('findPin / removePin mirror ssh-keygen -F / -R', async () => {
@@ -84,4 +101,79 @@ describe('connectWithPolicy', () => {
 		clearKnownHosts(client);
 		expect(client.knownHosts.size).toBe(0);
 	});
+});
+
+
+describe('restricted continuation failure controls', () => {
+  it('mode=no first contact still pins a valid key without changed-key restrictions', async () => {
+    const server = await SshServer.create(HOST);
+    const client = new SshClient();
+    const r = await connectWithPolicy(client, HOST, server, 'no');
+    expect(r.connected).toBe(true);
+    expect(r.result.hostKeyDecision).toBe('tofu-pinned');
+    expect(r.result.restrictedCapabilities).toBeUndefined();
+    expect(findPin(client, HOST)).toBe(server.publicIdentity().fingerprint);
+  });
+
+  it('mode=no cannot turn failed KEX into a successful changed-host handshake', async () => {
+    const oldServer = await SshServer.create(HOST);
+    const client = new SshClient();
+    await connectWithPolicy(client, HOST, oldServer, 'accept-new');
+    const replacement = await SshServer.create(HOST);
+    const responder = { respond: async (jwk: JsonWebKey) => {
+      const hello = await replacement.respond(jwk);
+      return { ...hello, sharedSecretHex: 'invalid-secret' };
+    } };
+    const r = await connectWithPolicy(client, HOST, responder, 'no');
+    expect(r.result.signatureValid).toBe(true);
+    expect(r.result.sharedAgrees).toBe(false);
+    expect(r.connected).toBe(false);
+    expect(r.result.connected).toBe(false);
+    expect(r.result.restrictedCapabilities).toBeUndefined();
+    expect(findPin(client, HOST)).toBe(oldServer.publicIdentity().fingerprint);
+  });
+
+  it('changed-host invalid signatures remain rejected and preserve the pin', async () => {
+    const oldServer = await SshServer.create(HOST);
+    const client = new SshClient();
+    await connectWithPolicy(client, HOST, oldServer, 'accept-new');
+    const replacement = await SshServer.create(HOST);
+    const responder = { respond: async (jwk: JsonWebKey) => ({
+      ...await replacement.respond(jwk), hostSignatureB64: 'AA==',
+    }) };
+    const r = await connectWithPolicy(client, HOST, responder, 'no');
+    expect(r.result.signatureValid).toBe(false);
+    expect(r.connected).toBe(false);
+    expect(r.result.restrictedCapabilities).toBeUndefined();
+    expect(findPin(client, HOST)).toBe(oldServer.publicIdentity().fingerprint);
+  });
+
+  it.each(['yes', 'ask', 'accept-new', 'no'] as const)('first-contact failed signature is never pinned or offered for acceptance in %s mode', async mode => {
+    const server = await SshServer.create(HOST);
+    const client = new SshClient();
+    const responder = { respond: async (jwk: JsonWebKey) => ({
+      ...await server.respond(jwk), hostSignatureB64: 'AA==',
+    }) };
+    const r = await connectWithPolicy(client, HOST, responder, mode);
+    expect(r.connected).toBe(false);
+    expect(r.pendingFirstContact).toBeUndefined();
+    expect(findPin(client, HOST)).toBeUndefined();
+    expect(r.result.hostKeyDecision).toBe('unknown');
+  });
+});
+
+
+it.each(['yes', 'ask', 'accept-new', 'no'] as const)('first-contact failed KEX is never pinned or offered for acceptance in %s mode', async mode => {
+  const server = await SshServer.create(HOST);
+  const client = new SshClient();
+  const responder = { respond: async (jwk: JsonWebKey) => ({
+    ...await server.respond(jwk), sharedSecretHex: 'invalid-secret',
+  }) };
+  const r = await connectWithPolicy(client, HOST, responder, mode);
+  expect(r.result.signatureValid).toBe(true);
+  expect(r.result.sharedAgrees).toBe(false);
+  expect(r.connected).toBe(false);
+  expect(r.pendingFirstContact).toBeUndefined();
+  expect(findPin(client, HOST)).toBeUndefined();
+  expect(r.result.hostKeyDecision).toBe('unknown');
 });

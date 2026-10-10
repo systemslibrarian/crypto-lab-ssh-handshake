@@ -314,6 +314,6 @@ export const REAL_WORLD: RealWorldCard[] = [
 	},
 	{
 		title: 'StrictHostKeyChecking modes',
-		body: 'OpenSSH lets you tune the TOFU policy: "yes" refuses any unknown key, "ask" (default) prompts, "accept-new" auto-pins on first contact but still rejects changes, "no" trusts whatever shows up. The accept-new mode is the honest TOFU default for automation.',
+		body: 'OpenSSH lets you tune the TOFU policy: "yes" refuses any unknown key, "ask" (default) prompts, "accept-new" auto-pins on first contact but still rejects changes, "no" auto-pins new hosts but warns and permits restricted continuation on changed keys while retaining the old pin. Password/interactive authentication and forwarding restrictions are modeled here; those SSH layers are not implemented. The accept-new mode is the honest TOFU default for automation.',
 	},
 ];

@@ -11,7 +11,16 @@ export type StrictMode =
 	| 'yes'         // refuse unknown hosts entirely
 	| 'ask'         // prompt the user on first contact (engine TOFU happens but is held)
 	| 'accept-new'  // pin on first contact, reject on change (the engine default)
-	| 'no';         // accept whatever shows up
+	| 'no';         // auto-pin new hosts; changed keys continue restricted without replacing the pin
+
+// Bounded model of OpenSSH HOST_CHANGED/continue_unsafe at source revision
+// 813f670ccc086aeb48ca6bf701e6a73c098a65bb. These SSH layers are not implemented
+// by this browser demo; the metadata records restrictions, not a real login.
+export const UNSAFE_CONTINUATION_RESTRICTIONS = [
+	'password authentication', 'keyboard-interactive authentication',
+	'agent forwarding', 'X11 forwarding', 'port forwarding',
+	'tunnel forwarding', 'UpdateHostkeys',
+] as const;
 
 // A connect attempt under the policy wrapper. On first contact in 'ask' mode
 // the connect is held: the engine's auto-pin has been rolled back and the
@@ -50,8 +59,8 @@ export function clearKnownHosts(client: SshClient): void {
 // Connect under a StrictHostKeyChecking mode. In 'ask' mode this rolls back
 // the engine's auto-pin so the UI can present an explicit Accept/Reject/Verify
 // prompt. All other modes preserve the existing engine semantics, with 'yes'
-// additionally refusing unknown hosts and 'no' additionally accepting changes
-// (treating change as if it were first contact — dangerous, kept for fidelity).
+// additionally refusing unknown hosts and 'no' allowing a bounded restricted
+// continuation on a changed key. Existing pins are never silently replaced.
 export async function connectWithPolicy(
 	client: SshClient,
 	hostName: string,
@@ -61,6 +70,22 @@ export async function connectWithPolicy(
 	const sigName = algoNames().sig;
 	const wasPinned = findPin(client, hostName, sigName) !== undefined;
 	const result = await client.connect(hostName, responder);
+
+	// The teaching engine auto-pins before combining its crypto checks. Never
+	// persist that pin or offer it for acceptance when the handshake failed.
+	if (!wasPinned && result.hostKeyDecision === 'tofu-pinned' &&
+		(!result.signatureValid || !result.sharedAgrees)) {
+		client.knownHosts.get(hostName)?.delete(sigName);
+		if (client.knownHosts.get(hostName)?.size === 0) client.knownHosts.delete(hostName);
+		return {
+			result: {
+				...result, hostKeyDecision: 'unknown', connected: false,
+				steps: replaceLastDecisionStep(result.steps, 'known_hosts (not pinned)',
+					'Failed signature or key exchange — the unverified key was not pinned or offered for acceptance.', false),
+			},
+			connected: false,
+		};
+	}
 
 	// First-contact branch
 	if (!wasPinned && result.hostKeyDecision === 'tofu-pinned') {
@@ -123,36 +148,25 @@ export async function connectWithPolicy(
 		return { result, connected: result.connected };
 	}
 
-	// Changed-host branch under 'no' mode: overwrite the pin and treat as connected.
+	// Changed-host branch under 'no': preserve the old pin, warn, and describe
+	// restricted transport continuation. This is not renewed host identity trust.
 	if (
-		(mode as StrictMode) === 'no' &&
+		mode === 'no' &&
 		result.hostKeyDecision === 'CHANGED-REJECTED' &&
-		result.signatureValid
+		result.signatureValid && result.sharedAgrees
 	) {
-		// Trust whatever is on the wire. (Dangerous; kept for OpenSSH parity.)
-		// The engine's transcript embeds the presented fingerprint in the
-		// "WARNING: host key changed! pinned X but got Y" detail string.
-		const detail = result.steps[result.steps.length - 1]?.detail ?? '';
-		const presented = detail.match(/but got (SHA256:[A-Za-z0-9+/=]+)/)?.[1];
-		if (presented) {
-			let hostPins = client.knownHosts.get(hostName);
-			if (!hostPins) {
-				hostPins = new Map();
-				client.knownHosts.set(hostName, hostPins);
-			}
-			hostPins.set(sigName, presented);
-		}
 		return {
 			result: {
 				...result,
-				hostKeyDecision: 'tofu-pinned',
+				hostKeyDecision: 'CHANGED-ALLOWED-RESTRICTED',
+				restrictedCapabilities: [...UNSAFE_CONTINUATION_RESTRICTIONS],
 				connected: true,
-				summary: 'Connected — StrictHostKeyChecking=no accepted a changed host key (dangerous).',
+				summary: 'Transport continued (restricted model) — StrictHostKeyChecking=no; old pin retained, changed identity remains untrusted.',
 				steps: replaceLastDecisionStep(
 					result.steps,
-					'known_hosts (no check)',
-					`StrictHostKeyChecking=no — accepted the new host key without prompting. The pin was silently overwritten.`,
-					true,
+					'known_hosts (changed; restricted continuation)',
+					`StrictHostKeyChecking=no — host key mismatch remains; old pin retained. Modeled disabled capabilities: ${UNSAFE_CONTINUATION_RESTRICTIONS.join(', ')}. User authentication and forwarding are not implemented here; this is transport-policy teaching, not a successful SSH login.`,
+					false,
 				),
 			},
 			connected: true,

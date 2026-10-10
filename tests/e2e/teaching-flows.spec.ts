@@ -306,3 +306,34 @@ test.describe('transcript + summary copy', () => {
 		expect(text.startsWith('#')).toBeTruthy();
 	});
 });
+
+
+test('changed key under no retains its pin and warning on repeated continuation', async ({ page }) => {
+  await startServer(page);
+  await page.click('.mode-pill[data-mode="accept-new"]');
+  await page.click('#connect-btn');
+  await expect(page.locator('.pin-fp')).toBeVisible();
+  const oldPin = await page.locator('.pin-fp').first().textContent();
+  await page.click('#restart-btn');
+  await expect(page.locator('#restart-btn')).toBeEnabled();
+  await page.click('.mode-pill[data-mode="no"]');
+  for (let i = 0; i < 2; i++) {
+    await page.click('#connect-btn');
+    await expect(page.locator('#connect-result .handshake-decision')).toHaveText('HOST KEY CHANGED — restricted continuation');
+    await expect(page.locator('#connect-result .ssh-warning')).toContainText('old known_hosts pin is retained');
+    await expect(page.locator('#connect-result .ssh-warning')).toContainText('not a successful login');
+    await expect(page.locator('.pin-fp').first()).toHaveText(oldPin!);
+    await expect(page.locator('#connect-result .handshake-summary')).toContainText('old pin retained');
+    await expect(page.locator('#connect-result .transcript-row--changed .t-label')).toHaveText('host pubkey (long-term)');
+  }
+  await page.click('.mode-pill[data-mode="accept-new"]');
+  await page.click('#connect-btn');
+  await expect(page.locator('#connect-result .handshake-decision')).toHaveText('HOST KEY CHANGED — rejected');
+  await expect(page.locator('.pin-fp').first()).toHaveText(oldPin!);
+  // Explicit remove/reconnect is the only transition that replaces this pin.
+  await page.click('#forget-btn');
+  await expect(page.locator('.pin-fp')).toHaveCount(0);
+  await page.click('#connect-btn');
+  await expect(page.locator('#connect-result .handshake-decision')).toContainText('TOFU');
+  await expect(page.locator('.pin-fp').first()).not.toHaveText(oldPin!);
+});

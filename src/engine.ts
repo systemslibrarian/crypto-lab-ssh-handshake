@@ -200,7 +200,9 @@ export interface ConnectResult {
     steps: { label: string; detail: string; ok: boolean }[];
     sharedAgrees: boolean;
     signatureValid: boolean;
-    hostKeyDecision: 'tofu-pinned' | 'matches-known' | 'CHANGED-REJECTED' | 'unknown';
+    hostKeyDecision: 'tofu-pinned' | 'matches-known' | 'CHANGED-REJECTED' | 'CHANGED-ALLOWED-RESTRICTED' | 'unknown';
+    // Policy teaching metadata only: the demo has no userauth/forwarding layers.
+    restrictedCapabilities?: string[];
     connected: boolean;
     summary: string;
 }

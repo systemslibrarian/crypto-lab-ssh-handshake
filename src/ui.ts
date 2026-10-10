@@ -569,7 +569,9 @@ function renderConnectSection(state: AppState): HTMLElement {
 				} else {
 					state.pending = null;
 					state.pendingLabel = '';
-					status.textContent = policyResult.connected ? 'Connection established.' : policyResult.result.summary;
+					status.textContent = policyResult.result.hostKeyDecision === 'CHANGED-ALLOWED-RESTRICTED'
+						? policyResult.result.summary
+						: policyResult.connected ? 'Connection established.' : policyResult.result.summary;
 				}
 				if (policyResult.connected && policyResult.result.hostKeyDecision === 'tofu-pinned') {
 					state.didTofuConnect = true;
@@ -1049,7 +1051,8 @@ function encodeForAttr(s: string): string {
 function transcriptHighlight(result: ConnectResult): Set<keyof Transcript> {
 	const set = new Set<keyof Transcript>();
 	if (!result.signatureValid) set.add('hostSignatureB64');
-	if (result.hostKeyDecision === 'CHANGED-REJECTED') set.add('hostPubJwk');
+	if (result.hostKeyDecision === 'CHANGED-REJECTED' ||
+		result.hostKeyDecision === 'CHANGED-ALLOWED-RESTRICTED') set.add('hostPubJwk');
 	return set;
 }
 
@@ -1267,6 +1270,7 @@ function decisionAccent(d: ConnectResult['hostKeyDecision']): string {
 		case 'matches-known':
 			return 'scenario-status--valid';
 		case 'CHANGED-REJECTED':
+		case 'CHANGED-ALLOWED-RESTRICTED':
 		case 'unknown':
 		default:
 			return 'scenario-status--invalid';
@@ -1281,6 +1285,8 @@ function decisionLabel(d: ConnectResult['hostKeyDecision']): string {
 			return 'Matches known_hosts';
 		case 'CHANGED-REJECTED':
 			return 'HOST KEY CHANGED — rejected';
+		case 'CHANGED-ALLOWED-RESTRICTED':
+			return 'HOST KEY CHANGED — restricted continuation';
 		case 'unknown':
 		default:
 			return 'Unknown host';
@@ -1288,6 +1294,14 @@ function decisionLabel(d: ConnectResult['hostKeyDecision']): string {
 }
 
 function decisionBanner(result: ConnectResult): string {
+	if (result.hostKeyDecision === 'CHANGED-ALLOWED-RESTRICTED') {
+		return `
+			<div class="ssh-warning ssh-warning--bad" role="alert">
+				<p class="ssh-warning-title">WARNING: REMOTE HOST IDENTIFICATION HAS CHANGED!</p>
+				<p class="ssh-warning-body">StrictHostKeyChecking=no permits a restricted transport-policy continuation. The old known_hosts pin is retained; this changed key has not become trusted. Modeled restrictions disable password/keyboard-interactive authentication, agent/X11/port/tunnel forwarding, and UpdateHostkeys. These SSH layers are not implemented in this browser demo, so continuation is not a successful login. Real OpenSSH may still abort if ExitOnForwardFailure requires cancelled forwarding. Verify an intentional rotation out of band before explicitly removing the old pin.</p>
+			</div>
+		`;
+	}
 	if (result.hostKeyDecision === 'CHANGED-REJECTED') {
 		return `
 			<div class="ssh-warning ssh-warning--bad" role="alert">

@@ -10,7 +10,7 @@ An interactive model of the **SSH transport-layer handshake** and the **`known_h
 - **Reasoning about `known_hosts` warnings** — when `REMOTE HOST IDENTIFICATION HAS CHANGED!` appears, this is what is happening underneath. The transcript inspector highlights the field that broke the handshake (host pubkey, signature, etc.) so you can see *which* part of the check fired.
 - **Contrasting the three trust models** — read alongside the sibling [`crypto-lab-pki-chain`](https://systemslibrarian.github.io/crypto-lab-pki-chain/) (hierarchical CA / TLS) and [`crypto-lab-web-of-trust`](https://systemslibrarian.github.io/crypto-lab-web-of-trust/) (decentralized PGP) demos. SSH sits between them: no CA, no graph, just a per-host pin — unless you opt into SSHFP+DNSSEC or OpenSSH `@cert-authority`, which the demo also models.
 - **Teaching ephemeral KEX + signature authentication** — the same shape shows up in TLS 1.3 and Noise; SSH is the cleanest place to see it because there is no certificate machinery in the way.
-- **Comparing `StrictHostKeyChecking` modes** — toggle between `yes` (refuse unknown), `ask` (prompt), `accept-new` (silent pin, reject change), and `no` (trust whatever responds) and watch the same connection produce very different decisions.
+- **Comparing `StrictHostKeyChecking` modes** — toggle between `yes` (refuse unknown), `ask` (prompt), `accept-new` (silent pin, reject change), and `no` (auto-pin new hosts, permit restricted changed-key continuation without replacing the saved pin) and watch the same connection produce very different decisions.
 - **Do NOT use this to reason about first-contact safety in production** — TOFU does **not** protect a first connection against an active man-in-the-middle. The demo includes the *MITM on first contact* and *DNS spoof of SSHFP without DNSSEC* scenarios specifically to make that limitation undeniable.
 - **Do NOT use this as a real SSH implementation** — this is a toy for learning. For production use OpenSSH, libssh, or another vetted library.
 
@@ -24,7 +24,7 @@ The page walks through six sections: starting a server (which generates a real h
 
 - **TOFU does not protect first contact** — an active man-in-the-middle on the very first connection is pinned as if legitimate; trust-on-first-use only detects *changes* afterward.
 - **Ignoring `REMOTE HOST IDENTIFICATION HAS CHANGED!`** — dismissing the known_hosts warning, or reflexively removing the pin, discards the one signal that distinguishes a planned key rotation from an attack.
-- **`StrictHostKeyChecking no`** — blindly trusting whatever responds disables change detection entirely and accepts any impostor.
+- **`StrictHostKeyChecking no`** — a changed key still triggers a warning and the existing pin remains. OpenSSH may continue with password/keyboard-interactive authentication, forwarding and UpdateHostkeys disabled; this does not restore trust in the host identity. This demo explicitly models those restrictions as transport-policy metadata, because it has no user-authentication or forwarding layers. The policy wrapper rolls back the engine's first-contact auto-pin after a failed signature or key exchange, and never offers that failed handshake for acceptance. Intentional pin replacement requires out-of-band verification and an explicit remove/reconnect flow. Other OpenSSH conditions (such as ExitOnForwardFailure) may still abort; this is not full client parity. Source: [pinned OpenSSH HOST_CHANGED/continue_unsafe](https://github.com/openssh/openssh-portable/blob/813f670ccc086aeb48ca6bf701e6a73c098a65bb/sshconnect.c#L1231-L1344).
 - **SSHFP without DNSSEC** — verifying a fingerprint via an unsigned DNS record can itself be spoofed, so the "out-of-band" check lies.
 - **Accepting a fingerprint without real out-of-band verification** — clicking through the `ask` prompt without comparing the fingerprint through a trusted channel defeats the purpose of the prompt.
 
@@ -44,6 +44,13 @@ cd crypto-lab-ssh-handshake
 npm install
 npm run dev
 ```
+
+## Testing
+
+The shared CI/Pages build gate runs `npm test`, `npm run build`, and
+`npm run test:e2e`, which includes both the functional teaching flows and the
+accessibility specs. `npm run test:a11y` is the accessibility-only subset for
+local focused checks; it does not replace the full browser gate.
 
 ## Related Demos
 
