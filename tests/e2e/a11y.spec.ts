@@ -62,3 +62,23 @@ test('no WCAG A/AA violations in post-connect exhibits (dark)', async ({ page })
 	await scan(page);
 });
 
+
+
+for (const width of [1280, 380]) {
+  test(`restricted changed-key continuation remains accessible at ${width}px`, async ({ page }) => {
+    await page.setViewportSize({ width, height: 900 });
+    await page.goto('./');
+    await page.click('#start-btn');
+    await page.click('.mode-pill[data-mode="accept-new"]');
+    await page.click('#connect-btn');
+    await expect(page.locator('.pin-fp')).toBeVisible();
+    await page.click('#restart-btn');
+    await expect(page.locator('#restart-btn')).toBeEnabled();
+    await page.click('.mode-pill[data-mode="no"]');
+    await page.click('#connect-btn');
+    await expect(page.locator('#connect-result .handshake-decision')).toHaveText('HOST KEY CHANGED — restricted continuation');
+    await expect(page.locator('#connect-result .ssh-warning')).toContainText('not a successful login');
+    await scan(page);
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  });
+}
