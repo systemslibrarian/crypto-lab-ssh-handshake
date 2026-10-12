@@ -1,4 +1,5 @@
 import './style.css';
+import { appendDeploymentContext } from './deployment-context.ts';
 import './extra.css';
 import { SshClient, SshServer, makeMitm } from './engine.ts';
 import { mountApp } from './ui.ts';
@@ -31,6 +32,7 @@ if (import.meta.env.DEV) {
 }
 
 mountApp(document.querySelector<HTMLDivElement>('#app')!);
+appendDeploymentContext();
 
 (function initThemeToggle() {
 	const button = document.getElementById('theme-toggle') as HTMLButtonElement | null;

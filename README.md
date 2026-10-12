@@ -95,3 +95,7 @@ No environment variables, no API keys, no servers. Everything runs client-side i
 *Part of the [Crypto Lab](https://crypto-lab.systemslibrarian.dev/) suite.*
 
 *"So whether you eat or drink or whatever you do, do it all for the glory of God." — 1 Corinthians 10:31*
+
+## OpenSSH deployment context
+
+A visible dated comparison links [OpenSSH release notes](https://www.openssh.org/releasenotes.html) and [PQ guidance](https://www.openssh.org/pq.html), separates PQ key exchange, host signatures and trust bootstrap, and keeps the lab’s classical JSON-model engine explicit.
