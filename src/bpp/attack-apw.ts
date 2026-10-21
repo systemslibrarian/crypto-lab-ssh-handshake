@@ -61,6 +61,17 @@ export function classifyIdealised(firstPlainBlock: Uint8Array, pageBudget: numbe
 	};
 }
 
+// A recovery claim must follow what the receiver actually disclosed. A bad
+// length disconnect discloses no fixed plaintext prefix; an uncompleted wait
+// in the idealised receiver has not revealed the length either.
+export function recoverablePrefixBits(receiver: BrokenReceiver, reaction: ApwReaction): 0 | 14 | 32 {
+	if (reaction.kind === 'DISCONNECT') return 0;
+	if (reaction.kind === 'MAC_ERROR') return 32;
+	if (receiver === 'openssh-5.1' && (reaction.kind === 'FIN' || reaction.kind === 'WAIT') &&
+		reaction.packetLength >= 5 && reaction.packetLength < SSH_MAX_PACKET_LENGTH) return 14;
+	return 0;
+}
+
 export function recoverTargetPlaintext(
 	primePlaintext: Uint8Array,
 	lastCiphertext: Uint8Array,

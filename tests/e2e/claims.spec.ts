@@ -1,3 +1,4 @@
+import { createCipheriv } from 'node:crypto';
 import { expect, test, type Page } from '@playwright/test';
 
 function xorHex(...hexValues: string[]): string {
@@ -66,15 +67,105 @@ test('pre-5.2 aligned wait recovers the displayed 32-bit prefix', async ({ page 
 	await assertDisplayedXor(page, 32);
 });
 
-test('[mutation:apw-ctr] AES-CTR defence is tied to an unrelated computed prefix', async ({ page }) => {
+for (const depth of ['14', '32']) {
+	test(`[mutation:apw-no-recovery-${depth}] invalid length cannot establish a ${depth}-bit recovery`, async ({ page }) => {
+		await openPacketLayer(page);
+		await page.selectOption('#apw-target', 'budget');
+		await captureApw(page);
+		await page.selectOption('#apw-receiver', 'openssh');
+		await page.selectOption('#apw-depth', depth);
+		await page.click('#apw-inject');
+		await expect(page.locator('.reaction-log strong')).toHaveText('DISCONNECT');
+		await expect(page.locator('#apw-reaction')).toContainText('No plaintext prefix recovered');
+		await expect(page.locator('#apw-verdict')).toHaveCount(0);
+		await expect(page.locator('#apw-recovered')).toHaveCount(0);
+		await expect(page.locator('#apw-true-bits')).toHaveCount(0);
+	});
+}
+
+test('idealised over-budget wait shows cost without claiming recovery', async ({ page }) => {
+	await openPacketLayer(page);
+	await page.selectOption('#apw-target', 'budget');
+	await captureApw(page);
+	await page.selectOption('#apw-receiver', 'ideal');
+	await page.click('#apw-inject');
+	await expect(page.locator('.reaction-log strong')).toHaveText('WAIT');
+	await expect(page.locator('#apw-reaction')).toContainText('Cost shown; run not performed');
+	await expect(page.locator('#apw-verdict')).toHaveCount(0);
+	await expect(page.locator('#apw-recovered')).toHaveCount(0);
+});
+
+test('[mutation:apw-ctr] AES-CTR output and recovery candidate match independent OpenSSL computation', async ({ page }) => {
 	await openPacketLayer(page);
 	await captureApw(page);
 	await page.selectOption('#apw-fix', 'ctr');
 	await page.click('#apw-run-fix');
-	await expect(page.locator('#apw-ctr-verdict')).toHaveText('✓ DEFENCE HELD — AES-CTR USED AN UNRELATED KEYSTREAM BLOCK');
 	const proof = page.locator('#apw-ctr-proof');
-	expect(await proof.getAttribute('data-unrelated')).toBe('true');
-	expect(await proof.getAttribute('data-candidate')).not.toBe(await proof.getAttribute('data-target'));
+	await expect(proof).toBeVisible();
+	await page.locator('#apw-fix-out summary').click();
+	const readBytes = async (id: string): Promise<string> => (await page.locator(id).getAttribute('data-bytes'))!;
+	const key = await readBytes('#apw-ctr-key');
+	const counter = await readBytes('#apw-ctr-counter');
+	const input = await readBytes('#apw-ctr-input');
+	expect(input).toBe(await readBytes('#apw-cstar'));
+	// Node/OpenSSL is independent of the page's WebCrypto AES-CTR path.
+	const cipher = createCipheriv('aes-128-ctr', Buffer.from(key, 'hex'), Buffer.from(counter, 'hex'));
+	const expected = Buffer.concat([cipher.update(Buffer.from(input, 'hex')), cipher.final()]).toString('hex');
+	expect(await readBytes('#apw-ctr-output')).toBe(expected);
+	const candidate = (await proof.getAttribute('data-candidate'))!;
+	const candidateBits = xorHex(candidate);
+	expect(candidateBits).toBe(xorHex(expected, await readBytes('#apw-ctr-last'), await readBytes('#apw-ctr-predecessor')).slice(0, 32));
+	const unrelated = candidate !== await proof.getAttribute('data-target');
+	expect(await proof.getAttribute('data-unrelated')).toBe(String(unrelated));
+	if (unrelated) {
+		await expect(page.locator('#apw-ctr-verdict')).toHaveText('✓ DEFENCE HELD — AES-CTR USED AN UNRELATED KEYSTREAM BLOCK');
+	} else {
+		await expect(page.locator('#apw-ctr-verdict')).toHaveCount(0);
+		await expect(page.locator('#apw-fix-out')).toContainText('INCONCLUSIVE');
+	}
+});
+
+test('changed APW inputs retire results while reselecting the same inputs preserves them', async ({ page }) => {
+	await openPacketLayer(page);
+	await captureApw(page);
+	await page.selectOption('#apw-receiver', 'openssh');
+	await page.click('#apw-inject');
+	const prime = await page.locator('#apw-prime').getAttribute('data-bytes');
+	await page.selectOption('#apw-receiver', 'openssh');
+	await page.selectOption('#apw-depth', '14');
+	await page.selectOption('#apw-target', 'payload');
+	await expect(page.locator('#apw-verdict')).toContainText('(14 bits)');
+	expect(await page.locator('#apw-prime').getAttribute('data-bytes')).toBe(prime);
+
+	await page.selectOption('#apw-depth', '32');
+	await expect(page.locator('#apw-verdict')).toHaveCount(0);
+	await expect(page.locator('#apw-reaction')).toContainText('retired');
+	await page.click('#apw-inject');
+	await expect(page.locator('#apw-verdict')).toContainText('(32 bits)');
+	await page.selectOption('#apw-receiver', 'ideal');
+	await expect(page.locator('#apw-verdict')).toHaveCount(0);
+	await expect(page.locator('#apw-reaction')).toContainText('retired');
+	await page.click('#apw-inject');
+	await expect(page.locator('#apw-verdict')).toBeVisible();
+	await page.selectOption('#apw-target', 'budget');
+	await expect(page.locator('#apw-status')).toContainText('retired');
+	await expect(page.locator('#apw-verdict')).toHaveCount(0);
+	await expect(page.locator('#apw-cstar')).toHaveCount(0);
+	await expect(page.locator('#apw-inject')).toBeDisabled();
+	await expect(page.locator('#apw-run-fix')).toBeDisabled();
+});
+
+test('changing the fix retires its verdict and reselecting the same fix is a no-op', async ({ page }) => {
+	await openPacketLayer(page);
+	await captureApw(page);
+	await page.selectOption('#apw-fix', 'chacha');
+	await page.click('#apw-run-fix');
+	await expect(page.locator('#apw-chacha-verdict')).toBeVisible();
+	await page.selectOption('#apw-fix', 'chacha');
+	await expect(page.locator('#apw-chacha-verdict')).toBeVisible();
+	await page.selectOption('#apw-fix', 'ctr');
+	await expect(page.locator('#apw-chacha-verdict')).toHaveCount(0);
+	await expect(page.locator('#apw-fix-out')).toContainText('retired');
 });
 
 test('[mutation:apw-chacha] ChaCha defence is tied to the real Poly1305 rejection', async ({ page }) => {

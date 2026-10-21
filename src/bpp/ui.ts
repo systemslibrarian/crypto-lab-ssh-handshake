@@ -3,6 +3,7 @@ import {
 	APW_EXPECTED_32,
 	classifyIdealised,
 	classifyPre52OpenSsh,
+	recoverablePrefixBits,
 	recoverTargetPlaintext,
 	verifyRecoveredPrefix,
 } from './attack-apw.ts';
@@ -34,7 +35,8 @@ import { checkInitialKexMessage, negotiateStrictKex } from './strict-kex.ts';
 
 const encoder = new TextEncoder();
 
-// These six marker strings are the mutation anchors for the six new verdicts.
+// Verdict wording is kept separate from the computed conditions below.
+// Mutation tests change the underlying recovery, cipher, and protocol logic.
 export const APW_IDEALISED_ALARM = 'ALARM — PLAINTEXT LEAKED (32 bits)';
 export const APW_OPENSSH_ALARM_14 = 'ALARM — PLAINTEXT LEAKED (14 bits)';
 export const APW_OPENSSH_ALARM_32 = 'ALARM — PLAINTEXT LEAKED (32 bits)';
@@ -196,15 +198,40 @@ function mountApw(root: HTMLElement): void {
 	const progress = root.querySelector<HTMLProgressElement>('#apw-progress')!;
 	const rateOut = root.querySelector<HTMLElement>('#apw-rate-out')!;
 	let capture: ApwCapture | null = null;
+	let lastInjectionBlock: Uint8Array | null = null;
+	let fixRevision = 0;
+	const previousValues = new Map([receiver, depth, targetChoice, fixChoice].map((control) => [control, control.value]));
 
-	receiver.addEventListener('change', () => {
-		depth.disabled = receiver.value !== 'openssh';
-		reactionOut.replaceChildren();
-	});
+	for (const control of [receiver, depth, targetChoice, fixChoice]) {
+		control.addEventListener('change', () => {
+			if (previousValues.get(control) === control.value) return;
+			previousValues.set(control, control.value);
+			depth.disabled = receiver.value !== 'openssh';
+			if (control === targetChoice) {
+				capture = null;
+				lastInjectionBlock = null;
+				fixRevision++;
+				captureOut.replaceChildren();
+				reactionOut.replaceChildren();
+				fixOut.replaceChildren();
+				injectButton.disabled = true;
+				fixButton.disabled = true;
+				status.textContent = 'Previous target and results retired. Capture the newly selected target.';
+			} else if (control === fixChoice) {
+				fixRevision++;
+				if (fixOut.hasChildNodes()) fixOut.innerHTML = '<p class="packet-edge">Previous defence result retired. Re-run the injection with the selected fix.</p>';
+			} else if (reactionOut.hasChildNodes()) {
+				lastInjectionBlock = null;
+				reactionOut.innerHTML = '<p class="packet-edge">Previous recovery result retired. Inject again with the selected receiver and recovery setting.</p>';
+			}
+		});
+	}
 
 	captureButton.addEventListener('click', () => {
 		void (async () => {
 			captureButton.disabled = true;
+			fixRevision++;
+			lastInjectionBlock = null;
 			status.textContent = 'Encrypting a real SSH packet…';
 			try {
 				capture = await createApwCapture();
@@ -241,7 +268,7 @@ function mountApw(root: HTMLElement): void {
 		const pPrimeWanted = desiredPrime(chosenLength);
 		const rawDecryption = aesCbcDecryptRaw(capture.key, new Uint8Array(16), capture.target);
 		const desiredLastCiphertext = xorBytes(rawDecryption, pPrimeWanted);
-		// Materialise that successful L as the real last ciphertext block of a
+		// Materialise that selected L as the real last ciphertext block of a
 		// valid three-block SSH cover packet on the same CBC chain. Its final
 		// block is 12 attacker-irrelevant payload bytes plus four legal random
 		// padding bytes, so the evidence builder can select all 16 bytes without
@@ -254,62 +281,81 @@ function mountApw(root: HTMLElement): void {
 		cover.wire.set(requiredLastPlain, 32);
 		const encryptedCover = aesCbcEncryptRaw(capture.key, capture.targetPacketLastBlock, cover.wire);
 		const lastCiphertext = encryptedCover.slice(-16);
+		lastInjectionBlock = lastCiphertext;
 		const pPrime = aesCbcDecryptRaw(capture.key, lastCiphertext, capture.target);
-		const recovered = recoverTargetPlaintext(pPrime, lastCiphertext, capture.predecessor);
-		const leakedBits = receiver.value === 'ideal' || openSsh32 ? 32 : 14;
-		const verified = verifyRecoveredPrefix(recovered, capture.trueBlock, leakedBits);
 		const reaction = receiver.value === 'ideal'
 			? classifyIdealised(pPrime, 1_048_576)
 			: classifyPre52OpenSsh(pPrime, openSsh32);
+		const leakedBits = recoverablePrefixBits(receiver.value === 'ideal' ? 'idealised' : 'openssh-5.1', reaction);
+		const recovered = leakedBits === 0 ? null : recoverTargetPlaintext(pPrime, lastCiphertext, capture.predecessor);
+		const verified = recovered !== null && verifyRecoveredPrefix(recovered, capture.trueBlock, leakedBits);
 		const budgetStopsRun = receiver.value === 'ideal' && reaction.kind === 'WAIT';
 		const alarm = receiver.value === 'ideal'
 			? APW_IDEALISED_ALARM
-			: openSsh32 ? APW_OPENSSH_ALARM_32 : APW_OPENSSH_ALARM_14;
+			: leakedBits === 32 ? APW_OPENSSH_ALARM_32 : APW_OPENSSH_ALARM_14;
 		reactionOut.innerHTML = `
 			<p class="packet-stage"><span aria-hidden="true">②</span> INJECTED AS THE NEXT FIRST BLOCK</p>
 			${renderBytes('L · last received ciphertext', lastCiphertext, 'apw-last')}
 			${renderBytes('P′ · receiver decrypts', pPrime, 'apw-prime')}
-			<div class="reaction-log"><strong data-reaction-final="${reaction.kind}">${openSsh32 ? 'WAIT → MAC_ERROR' : reaction.kind}</strong><span>${reaction.detail}</span><span>ℓ = ${reaction.packetLength.toLocaleString()} · bytes counted = ${reaction.bytesCounted.toLocaleString()}</span></div>
-			${budgetStopsRun ? `<p class="packet-edge"><strong>Cost shown; run not performed.</strong> The page budget is 1,048,576 bytes. This model counted bytes—it did not send them.</p>` : `
+			<div class="reaction-log"><strong data-reaction-final="${reaction.kind}">${openSsh32 && reaction.kind === 'MAC_ERROR' ? 'WAIT → MAC_ERROR' : reaction.kind}</strong><span>${reaction.detail}</span><span>ℓ = ${reaction.packetLength.toLocaleString()} · bytes counted = ${reaction.bytesCounted.toLocaleString()}</span></div>
+			${budgetStopsRun ? `<p class="packet-edge"><strong>Cost shown; run not performed.</strong> The page budget is 1,048,576 bytes. This model counted bytes—it did not send them.</p>` : recovered === null ? `
+				<p class="packet-edge"><strong>No plaintext prefix recovered.</strong> This receiver reaction does not establish a 14-bit or 32-bit recovery.</p>` : !verified ? `
+				<p class="packet-edge"><strong>Recovery check failed.</strong> The computed candidate does not match the target plaintext. No successful recovery is claimed.</p>` : `
 				<div class="packet-verdict packet-verdict--alarm" id="apw-verdict" role="status">⚠ ${alarm}</div>
 				<div class="bit-proof">
 					<p>Recovered <code id="apw-recovered" data-recovered-bits="${bits(recovered, leakedBits)}">${bits(recovered, leakedBits)}</code></p>
 					<p>True bits <code id="apw-true-bits">${bits(capture.trueBlock, leakedBits)}</code></p>
-					<p class="bit-proof-result">${verified ? '✓ computed bits match the true plaintext' : '✗ mismatch'}</p>
+					<p class="bit-proof-result">✓ computed bits match the true plaintext</p>
 				</div>`}
 		`;
 	});
 
 	fixButton.addEventListener('click', () => {
 		if (!capture) return;
+		const activeCapture = capture;
+		const selectedFix = fixChoice.value;
+		const revision = ++fixRevision;
 		void (async () => {
 			fixButton.disabled = true;
 			try {
-				if (fixChoice.value === 'ctr') {
-					const transformed = await aesCtrTransform(randomBytes(16), randomBytes(16), capture.target);
-					const falseRecovery = xorBytes(transformed, randomBytes(16), capture.predecessor);
-					const unrelated = !equalBytes(falseRecovery.slice(0, 4), capture.trueBlock.slice(0, 4));
+				if (selectedFix === 'ctr') {
+					const key = randomBytes(16);
+					const counter = randomBytes(16);
+					const last = lastInjectionBlock ?? activeCapture.targetPacketLastBlock;
+					const transformed = await aesCtrTransform(key, counter, activeCapture.target);
+					const falseRecovery = xorBytes(transformed, last, activeCapture.predecessor);
+					const unrelated = !equalBytes(falseRecovery.slice(0, 4), activeCapture.trueBlock.slice(0, 4));
+					if (revision !== fixRevision) return;
 					fixOut.innerHTML = `
-						<div class="packet-verdict packet-verdict--safe" id="apw-ctr-verdict" role="status">✓ ${CTR_DEFENCE}</div>
-						<p class="panel-copy" id="apw-ctr-proof" data-candidate="${toHex(falseRecovery.slice(0, 4))}" data-target="${toHex(capture.trueBlock.slice(0, 4))}" data-unrelated="${unrelated}">The same 16 injected bytes were XORed with the keystream at a fresh counter position. The candidate prefix <code>${toHex(falseRecovery.slice(0, 4))}</code> ${unrelated ? 'does not match' : 'happened to match'} target <code>${toHex(capture.trueBlock.slice(0, 4))}</code>; no CBC relation survives.</p>`;
+						${unrelated ? `<div class="packet-verdict packet-verdict--safe" id="apw-ctr-verdict" role="status">✓ ${CTR_DEFENCE}</div>` : '<p class="packet-edge"><strong>INCONCLUSIVE — the candidate prefix matched by chance.</strong> One matching prefix does not establish a decryption oracle. Capture a new sample.</p>'}
+						<p class="panel-copy" id="apw-ctr-proof" data-candidate="${toHex(falseRecovery.slice(0, 4))}" data-target="${toHex(activeCapture.trueBlock.slice(0, 4))}" data-unrelated="${unrelated}">The same 16 injected bytes were XORed with the keystream at a fresh counter position. The candidate prefix <code>${toHex(falseRecovery.slice(0, 4))}</code> ${unrelated ? 'does not match' : 'happened to match'} target <code>${toHex(activeCapture.trueBlock.slice(0, 4))}</code>. This sample tests the CBC recovery relation; it is not a proof of AES-CTR security.</p>
+						<details class="packet-notes"><summary>Inspect the AES-CTR calculation</summary>
+							${renderBytes('sample key · in-page only', key, 'apw-ctr-key')}
+							${renderBytes('fresh counter', counter, 'apw-ctr-counter')}
+							${renderBytes('injected ciphertext', activeCapture.target, 'apw-ctr-input')}
+							${renderBytes('AES-CTR output', transformed, 'apw-ctr-output')}
+							${renderBytes('L · comparison chain block', last, 'apw-ctr-last')}
+							${renderBytes('c*₋₁ · target predecessor', activeCapture.predecessor, 'apw-ctr-predecessor')}
+						</details>`;
 				} else {
 					const key = randomBytes(64);
 					const packet = encodePacket(encoder.encode('same recurring secret'), randomBytes(32)).wire;
 					const sealed = protectOpenSshChaCha(key, 9, packet);
 					const tampered = sealed.wire.slice();
-					tampered.set(capture.target.slice(0, Math.min(16, sealed.ciphertext.length - 4)), 4);
+					tampered.set(activeCapture.target.slice(0, Math.min(16, sealed.ciphertext.length - 4)), 4);
 					let rejected = false;
 					try {
 						openOpenSshChaCha(key, 9, tampered);
 					} catch {
 						rejected = true;
 					}
+					if (revision !== fixRevision) return;
 					fixOut.innerHTML = `
-						<div class="packet-verdict packet-verdict--safe" id="apw-chacha-verdict" role="status">✓ ${CHACHA_DEFENCE}</div>
+						${rejected ? `<div class="packet-verdict packet-verdict--safe" id="apw-chacha-verdict" role="status">✓ ${CHACHA_DEFENCE}</div>` : '<p class="packet-edge"><strong>DEFENCE FAILED — substituted bytes were accepted.</strong> No successful tag rejection is claimed.</p>'}
 						<p class="panel-copy" id="apw-chacha-proof" data-rejected="${rejected}">Length uses the second key half; payload and one-time Poly1305 key use the first. Tag verification ran before payload decryption and ${rejected ? 'rejected' : 'did not reject'} the substituted bytes.</p>`;
 				}
 			} finally {
-				fixButton.disabled = false;
+				fixButton.disabled = capture === null;
 			}
 		})();
 	});

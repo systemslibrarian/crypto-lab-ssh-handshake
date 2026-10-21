@@ -32,6 +32,8 @@ jobs:
         run: npx playwright install --with-deps chromium
       - name: Browser gate (teaching flows + axe-core WCAG A/AA)
         run: npm run test:e2e
+      - name: Packet-layer behavioral mutation gate
+        run: npm run test:mutations
       - uses: actions/upload-pages-artifact@v5
         with:
           path: dist

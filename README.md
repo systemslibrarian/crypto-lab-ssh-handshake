@@ -70,6 +70,25 @@ draft-ietf-sshm-chacha20-poly1305-04 Appendix A, whose 72-byte encrypted body
 crosses a 64-byte ChaCha block boundary. The RFC 4253 §7.2 expansion also has an
 independent test re-derivation.
 
+Recovery verdicts require an observable receiver reaction and a matching plaintext
+check. Invalid-length disconnects and unfinished over-budget waits never claim a
+recovered prefix. Changing the receiver, recovery depth, target, or fix retires
+the corresponding stale evidence; selecting the same value preserves it.
+The AES-CTR browser claim independently checks the displayed calculation against
+Node/OpenSSL, rather than trusting two values produced by the same implementation.
+
+`npm run test:mutations` replays seven behavioral source changes: corrupt CBC
+recovery, invert the receiver range check, corrupt AES-CTR output, invert Poly1305
+tag rejection, delete the wrong Terrapin packet, invert strict-kex rejection, and
+reintroduce a recovery claim after a disconnect. Verdict wording is left unchanged.
+Each case requires the owning browser test to pass first, a successful mutated
+build with a different bundle hash, an assertion failure in that exact test, and
+restoration to the original passing bundle. Build failures, browser startup errors,
+timeouts, skips, and absent tests cannot count as kills. Commit source changes
+before running the mutation script; it refuses to mutate uncommitted source.
+The deployment workflow runs this gate after the full browser suite and before
+uploading the restored production bundle.
+
 ## Related Demos
 
 - [crypto-lab-pki-chain](https://systemslibrarian.github.io/crypto-lab-pki-chain/) — hierarchical X.509 CA trust, the centralized counterpart to SSH's TOFU model.

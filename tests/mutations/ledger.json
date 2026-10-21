@@ -1,50 +1,58 @@
 [
   {
     "id": "apw-idealised-leak",
-    "source": "src/bpp/ui.ts",
-    "find": "export const APW_IDEALISED_ALARM = 'ALARM — PLAINTEXT LEAKED (32 bits)';",
-    "replace": "export const APW_IDEALISED_ALARM = 'MUTANT — IDEALISED LEAK HIDDEN';",
+    "source": "src/bpp/attack-apw.ts",
+    "find": "return xorBytes(primePlaintext, lastCiphertext, targetPredecessor);",
+    "replace": "return xorBytes(primePlaintext, lastCiphertext, targetPredecessor.slice().reverse());",
     "grep": "mutation:apw-ideal",
-    "verdict": "idealised receiver leak"
+    "verdict": "idealised recovery fails when the CBC predecessor byte order is corrupted"
   },
   {
     "id": "apw-openssh-leak",
-    "source": "src/bpp/ui.ts",
-    "find": "export const APW_OPENSSH_ALARM_14 = 'ALARM — PLAINTEXT LEAKED (14 bits)';",
-    "replace": "export const APW_OPENSSH_ALARM_14 = 'MUTANT — OPENSSH LEAK HIDDEN';",
+    "source": "src/bpp/attack-apw.ts",
+    "find": "if (packetLength < 5 || packetLength > SSH_MAX_PACKET_LENGTH)",
+    "replace": "if (packetLength < 5 || packetLength <= SSH_MAX_PACKET_LENGTH)",
     "grep": "mutation:apw-openssh",
-    "verdict": "pre-5.2 OpenSSH receiver leak"
+    "verdict": "pre-5.2 recovery fails when the receiver range check is inverted"
   },
   {
     "id": "apw-ctr-defence",
-    "source": "src/bpp/ui.ts",
-    "find": "export const CTR_DEFENCE = 'DEFENCE HELD — AES-CTR USED AN UNRELATED KEYSTREAM BLOCK';",
-    "replace": "export const CTR_DEFENCE = 'MUTANT — AES-CTR DEFENCE SUPPRESSED';",
+    "source": "src/bpp/ctr.ts",
+    "find": "return new Uint8Array(output);",
+    "replace": "return new Uint8Array(output).reverse();",
     "grep": "mutation:apw-ctr",
-    "verdict": "AES-CTR defence"
+    "verdict": "independent OpenSSL comparison rejects corrupted AES-CTR output"
   },
   {
     "id": "apw-chacha-defence",
-    "source": "src/bpp/ui.ts",
-    "find": "export const CHACHA_DEFENCE = 'DEFENCE HELD — POLY1305 REJECTED BEFORE PAYLOAD DECRYPTION';",
-    "replace": "export const CHACHA_DEFENCE = 'MUTANT — POLY1305 DEFENCE SUPPRESSED';",
+    "source": "src/bpp/chachapoly.ts",
+    "find": "if (!equalBytes(suppliedTag, expectedTag))",
+    "replace": "if (equalBytes(suppliedTag, expectedTag))",
     "grep": "mutation:apw-chacha",
-    "verdict": "ChaCha20-Poly1305 defence"
+    "verdict": "ChaCha defence fails when invalid Poly1305 tags are accepted"
   },
   {
     "id": "terrapin-authenticated-deletion",
-    "source": "src/bpp/ui.ts",
-    "find": "export const TERRAPIN_ALARM = 'ALARM — PACKET DELETED, MAC VALID';",
-    "replace": "export const TERRAPIN_ALARM = 'MUTANT — DELETION HIDDEN';",
+    "source": "src/bpp/attack-terrapin.ts",
+    "find": "packets.filter((_, packetIndex) => packetIndex !== index)",
+    "replace": "packets.filter((_, packetIndex) => packetIndex === index)",
     "grep": "mutation:terrapin",
-    "verdict": "Terrapin authenticated deletion"
+    "verdict": "Terrapin evidence fails when deletion keeps EXT_INFO instead of the application packet"
   },
   {
     "id": "strict-kex-defence",
-    "source": "src/bpp/ui.ts",
-    "find": "export const STRICT_DEFENCE = 'DEFENCE HELD — STRICT KEX REJECTED SSH_MSG_IGNORE';",
-    "replace": "export const STRICT_DEFENCE = 'MUTANT — STRICT KEX DEFENCE SUPPRESSED';",
+    "source": "src/bpp/strict-kex.ts",
+    "find": "if (message === 'IGNORE')",
+    "replace": "if (message !== 'IGNORE')",
     "grep": "mutation:strict-kex",
-    "verdict": "strict-kex defence"
+    "verdict": "strict-kex defence fails when the IGNORE rejection is inverted"
+  },
+  {
+    "id": "apw-disconnect-is-not-recovery",
+    "source": "src/bpp/attack-apw.ts",
+    "find": "if (reaction.kind === 'DISCONNECT') return 0;",
+    "replace": "if (reaction.kind === 'DISCONNECT') return 14;",
+    "grep": "mutation:apw-no-recovery-14",
+    "verdict": "invalid-length disconnect cannot substantiate a plaintext recovery claim"
   }
 ]

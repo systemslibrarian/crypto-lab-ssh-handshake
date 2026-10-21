@@ -5,8 +5,10 @@ import { concat, wireMpint } from '../wire.ts';
 import {
 	APW_EXPECTED_14,
 	APW_EXPECTED_32,
+	classifyIdealised,
 	classifyPre52OpenSsh,
 	measureOpenSshRates,
+	recoverablePrefixBits,
 	recoverTargetPlaintext,
 	verifyRecoveredPrefix,
 } from './attack-apw.ts';
@@ -164,6 +166,38 @@ describe('KAT — draft-ietf-sshm-chacha20-poly1305-04 Appendix A', () => {
 });
 
 describe('APW receiver and recovery model', () => {
+	it.each([
+		[0, false, 0],
+		[4, false, 0],
+		[5, false, 14],
+		[13, false, 14],
+		[12, false, 14],
+		[12, true, 32],
+		[65_549, false, 14],
+		[65_548, true, 32],
+		[262_144, false, 0],
+		[262_145, false, 0],
+		[0xfffffff0, false, 0],
+		[0xfffffff0, true, 0],
+	] as const)('claims only an observable prefix for length %i (complete wait %s)', (length, feedWait, expectedBits) => {
+		const reaction = classifyPre52OpenSsh(concatBytes(uint32(length), new Uint8Array(12)), feedWait);
+		expect(recoverablePrefixBits('openssh-5.1', reaction)).toBe(expectedBits);
+	});
+
+	it('claims idealised recovery only after the wait completes within the page budget', () => {
+		const completed = classifyIdealised(concatBytes(uint32(65_549), new Uint8Array(12)), 1_048_576);
+		const overBudget = classifyIdealised(concatBytes(uint32(0xfffffff0), new Uint8Array(12)), 1_048_576);
+		expect(recoverablePrefixBits('idealised', completed)).toBe(32);
+		expect(recoverablePrefixBits('idealised', overBudget)).toBe(0);
+	});
+	it.each([4, 20])('rejects a changed protected byte at offset %i before returning plaintext', (offset) => {
+		const key = new Uint8Array(64).fill(0x5a);
+		const packet = encodePacket(utf8('test payload'), new Uint8Array(32).fill(0x11)).wire;
+		const wire = protectOpenSshChaCha(key, 9, packet).wire.slice();
+		wire[offset] ^= 1;
+		expect(() => openOpenSshChaCha(key, 9, wire)).toThrow(/Poly1305 rejected/);
+	});
+
 	it('recovers a real CBC target block using P-prime XOR L XOR predecessor', async () => {
 		const direction = new CbcEncryptAndMacDirection(
 			fromHex('000102030405060708090a0b0c0d0e0f'),
