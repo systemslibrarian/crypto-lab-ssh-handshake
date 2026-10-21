@@ -140,3 +140,30 @@ for (const width of [320, 380, 1280]) {
     await checkReflow();
   });
 }
+
+test('packet-layer evidence reflows and has zero violations at 320px', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 });
+  await page.goto('./');
+  await expect(page.locator('#terrapin-demo')).toBeVisible();
+
+  await page.click('#apw-capture');
+  await expect(page.locator('#apw-status')).toHaveText('Target captured.');
+  await page.selectOption('#apw-receiver', 'ideal');
+  await page.click('#apw-inject');
+  await expect(page.locator('#apw-verdict')).toBeVisible();
+
+  await page.uncheck('#strict-client');
+  await page.uncheck('#strict-server');
+  await page.click('#terrapin-inject');
+  await page.click('#terrapin-delete');
+  await page.click('#terrapin-deliver');
+  await expect(page.locator('#terrapin-negative-fixture')).toBeVisible();
+
+  await openAllDetails(page);
+  await scan(page);
+  const geometry = await page.evaluate(() => ({
+    document: document.documentElement.scrollWidth,
+    viewport: innerWidth,
+  }));
+  expect(geometry.document).toBeLessThanOrEqual(geometry.viewport + 1);
+});

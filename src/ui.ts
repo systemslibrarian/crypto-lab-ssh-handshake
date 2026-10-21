@@ -27,6 +27,7 @@ import {
 } from './policy.ts';
 import { shortBytes, tapResponder, type Transcript } from './transcript.ts';
 import { mountHashLab } from './hashlab.ts';
+import { renderPacketLayerSection } from './bpp/ui.ts';
 import {
 	clearSshfp,
 	lookupSshfp,
@@ -1034,7 +1035,7 @@ function renderTranscript(transcript: Transcript | null, result: ConnectResult |
 				<div class="transcript-row"><span class="t-label">shared secret (display)</span><code>${shortBytes(transcript.sharedSecretB64, 22, 10)}</code></div>
 				<div class="transcript-row"><span class="t-label">decision</span><code>${result.hostKeyDecision}</code></div>
 			</div>
-			<p class="transcript-footnote">* "Exchange hash H" here is a teaching surrogate. Real RFC 4253 / RFC 8731 H also commits the SSH version strings and KEX_INIT payloads that this demo does not model. See Scope &amp; provenance for the full list.</p>
+			<p class="transcript-footnote">* "Exchange hash H" here is the core engine’s teaching surrogate. Real RFC 4253 §8 H commits the version strings, both KEXINIT payloads, host key, both ephemerals, and shared secret—not optional messages or sequence numbers. Section 4 builds that exact shape; see Scope &amp; provenance.</p>
 			<div class="transcript-actions">
 				<button class="tab-button transcript-copy" type="button" data-json='${encodeForAttr(json)}'>Copy transcript as JSON</button>
 				<span class="transcript-copy-msg" aria-live="polite"></span>
@@ -1812,7 +1813,7 @@ function renderConceptsSection(): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 4</p>
+				<p class="section-kicker">Section · 5</p>
 				<h2 id="models-heading">Three trust models</h2>
 				<p class="panel-copy">Three ways to decide which public keys are real. Hierarchical PKI ships roots in your OS (<a href="https://systemslibrarian.github.io/crypto-lab-pki-chain/">crypto-lab-pki-chain</a>). PGP’s Web of Trust grows a graph through people (<a href="https://systemslibrarian.github.io/crypto-lab-web-of-trust/">crypto-lab-web-of-trust</a>). SSH skips both and pins on first sight.</p>
 			</div>
@@ -1877,7 +1878,7 @@ function renderRealWorldSection(): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 5</p>
+				<p class="section-kicker">Section · 6</p>
 				<h2 id="realworld-heading">In the real world</h2>
 				<p class="panel-copy">Where TOFU actually lives: the files, the record types, the configuration knobs operators tune. And the honest lessons about what the model does and does not protect.</p>
 			</div>
@@ -1889,7 +1890,7 @@ function renderRealWorldSection(): HTMLElement {
 	return section;
 }
 
-// ---------- 6.5 Scope + citations -------------------------------------------
+// ---------- 7. Scope + citations --------------------------------------------
 
 function renderScopeSection(): HTMLElement {
 	const section = el('section', 'lab-section');
@@ -1927,7 +1928,7 @@ function renderScopeSection(): HTMLElement {
 	section.innerHTML = `
 		<div class="section-heading-row">
 			<div>
-				<p class="section-kicker">Section · 6</p>
+				<p class="section-kicker">Section · 7</p>
 				<h2 id="scope-heading">Scope &amp; provenance</h2>
 				<p class="panel-copy">What the demo claims to model, what it leaves out, and where to read the authoritative versions. Every claim above this section should map to one of the references below.</p>
 			</div>
@@ -1962,7 +1963,7 @@ function renderFooter(): HTMLElement {
 			</div>
 			<div class="footer-meta-item">
 				<p class="hero-metric-label">Status</p>
-				<p class="panel-copy">Educational model. The crypto (ephemeral X25519/ECDH P-256 + Ed25519/ECDSA P-256 via Web Crypto) is real; the trust logic mirrors OpenSSH known_hosts. The SSH binary packet protocol and algorithm negotiation are not modelled — use OpenSSH or a vetted library for production.</p>
+				<p class="panel-copy">Educational model. The handshake crypto and focused Section 4 packet computations are real; the trust logic mirrors OpenSSH known_hosts. This is not a general SSH implementation or negotiation stack—use OpenSSH or a vetted library for production.</p>
 			</div>
 		</div>
 		<p class="related-demos">Related demos:
@@ -2006,6 +2007,7 @@ export function mountApp(root: HTMLDivElement): void {
 	shell.appendChild(renderSetupSection(state));
 	shell.appendChild(renderConnectSection(state));
 	shell.appendChild(renderScenariosSection(state));
+	shell.appendChild(renderPacketLayerSection());
 	shell.appendChild(renderConceptsSection());
 	shell.appendChild(renderRealWorldSection());
 	shell.appendChild(renderScopeSection());

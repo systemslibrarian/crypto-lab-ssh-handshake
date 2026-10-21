@@ -73,7 +73,7 @@ export const HANDSHAKE_CONCEPTS: ConceptCard[] = [
 	},
 	{
 		title: 'The exchange hash H',
-		body: 'A single SHA-256 binding the host name, the host public key, BOTH ephemeral public keys, and the shared secret. Any substitution — different host key, swapped ephemeral, different name — changes H. Whatever the server signs commits it to this exact handshake; the client recomputes H and the signature only verifies if the bits match end to end.',
+		body: 'In the core teaching engine, a single SHA-256 binds the host name, host public key, BOTH ephemeral public keys, and shared secret. Any substitution in those selected fields changes H. Real RFC 4253 H has its own exact field list; it does not cover every transport message or the implicit sequence numbers. Section 4 builds that exact shape and shows why an injected SSH_MSG_IGNORE can leave H unchanged.',
 	},
 	{
 		title: 'Signing H with the host key',
@@ -132,23 +132,25 @@ export const SCOPE: ScopeCard[] = [
 			'known_hosts pin lookup, change detection, and the recovery flow (ssh-keygen -R).',
 			'StrictHostKeyChecking modes yes / ask / accept-new / no, including OpenSSH-style first-contact prompt.',
 			'Trust on first use and its honest first-contact limitation.',
+			'Two focused RFC 4253 binary-packet paths: AES-128-CBC plus HMAC-SHA-256 for the APW oracle, and chacha20-poly1305@openssh.com for Terrapin.',
+			'An RFC 4253 §8-shaped X25519 exchange hash and §7.2 64-byte key expansion inside the isolated Terrapin exhibit.',
 		],
 	},
 	{
 		heading: 'What this deliberately does NOT model',
 		bullets: [
-			'The SSH binary packet protocol — messages here are JSON, not RFC 4253 wire frames.',
-			'Algorithm negotiation — the engine picks one KEX + one SIG algorithm at init and uses them throughout.',
+			'A general SSH binary packet stack — the core handshake still exchanges JSON; only Section 4’s two isolated packet paths use RFC-shaped wire frames.',
+			'Full algorithm negotiation — the engine picks one KEX + one SIG algorithm at init, and each packet exhibit pins the algorithms it teaches.',
 			'User authentication — there are no passwords, no public-key auth, no Kerberos.',
 			'SSH channels, port forwarding, sftp, scp — only the transport-layer handshake.',
-			'Re-keying mid-session, compression, MAC negotiation, and cipher selection.',
+			'Re-keying mid-session, compression, general MAC negotiation, and general cipher selection.',
 			'OpenSSH host certificates and SSHFP / DNSSEC bootstrap (modelled in later sections, not in the core engine).',
 		],
 	},
 	{
 		heading: 'Where exactness is compressed for teaching',
 		bullets: [
-			'The "exchange hash H" here is a teaching surrogate. Real RFC 4253 / RFC 8731 H additionally binds the client and server version strings (V_C, V_S) and the KEX_INIT payloads (I_C, I_S) that this demo does not model. The PROPERTY — H commits the entire handshake transcript so a substitution breaks the host signature — is faithful; the exact byte layout is not.',
+			'The core engine’s "exchange hash H" is a teaching surrogate. Real RFC 4253 §8 H commits the version strings (V_C, V_S), both KEXINIT payloads (I_C, I_S), host key (K_S), both ephemeral values (e, f), and shared secret (K)—not every transport message. Section 4’s Terrapin path builds that exact field shape and demonstrates that SSH_MSG_IGNORE and sequence numbers are absent.',
 			'Host public keys are JWK-derived internally for the engine, then re-serialised as canonical OpenSSH wire-format blobs for fingerprints and known_hosts display. The fingerprints in the UI match what ssh-keygen -lf would print for the same key.',
 			'Multi-key hosts (an sshd offering ed25519 + ecdsa + rsa at the same hostname) are illustrated in the known_hosts panel but only ONE algorithm runs end-to-end per demo session — the engine initializes one KEX and one SIG algorithm at startup.',
 			'OpenSSH host certificates here use a compact JSON body and an Ed25519/ECDSA signature. Real OpenSSH certs are SSH-wire-format blobs with serial, nonce, principals, valid-after/before, critical-options, and extensions — the trust logic is faithful, the byte layout is compressed.',
@@ -167,6 +169,11 @@ export interface Citation {
 // teaching aid".
 export const CITATIONS: Citation[] = [
 	{
+		label: 'Boneh–Shoup — A Graduate Course in Applied Cryptography v0.6, §9.9',
+		url: 'https://toc.cryptobook.us/book.pdf',
+		note: 'The non-atomic SSH decryption case study and idealised length-oracle receiver.',
+	},
+	{
 		label: 'RFC 4251 — SSH Protocol Architecture',
 		url: 'https://www.rfc-editor.org/rfc/rfc4251',
 		note: 'Defines the three layers (transport / userauth / connection) and the trust model.',
@@ -174,7 +181,52 @@ export const CITATIONS: Citation[] = [
 	{
 		label: 'RFC 4253 — SSH Transport Layer',
 		url: 'https://www.rfc-editor.org/rfc/rfc4253',
-		note: 'The KEX, the exchange hash H, the host signature, and the server identification string.',
+		note: 'Binary packets, chained encryption, sequence-number MAC input, key expansion, exact exchange-hash fields, and SSH_MSG_IGNORE.',
+	},
+	{
+		label: 'RFC 6668 — SHA-2 MACs for SSH',
+		url: 'https://www.rfc-editor.org/rfc/rfc6668',
+		note: 'Defines hmac-sha2-256, used by the focused AES-CBC encrypt-and-MAC path.',
+	},
+	{
+		label: 'RFC 8308 — SSH extension negotiation',
+		url: 'https://www.rfc-editor.org/rfc/rfc8308',
+		note: 'Defines SSH_MSG_EXT_INFO, the first encrypted packet removed in the Terrapin exhibit.',
+	},
+	{
+		label: 'Albrecht–Paterson–Watson — Plaintext Recovery Attacks against SSH',
+		url: 'https://www.cs.umd.edu/~jkatz/security/downloads/PlaintextRecoverySSH.pdf',
+		note: 'Primary paper for the pre-5.2 OpenSSH length reactions, 14-bit and 32-bit recovery probabilities, and AES-CTR mitigation.',
+	},
+	{
+		label: 'Bäumer–Brinkmann–Schwenk — Terrapin Attack',
+		url: 'https://www.usenix.org/conference/usenixsecurity24/presentation/baumer',
+		note: 'Primary paper for sequence-number manipulation, prefix truncation, affected modes, and extension downgrades.',
+	},
+	{
+		label: 'draft-ietf-sshm-strict-kex-02',
+		url: 'https://datatracker.ietf.org/doc/html/draft-ietf-sshm-strict-kex-02',
+		note: 'Strict initial-key-exchange negotiation, permitted messages, KEXINIT-first rule, and sequence-number reset.',
+	},
+	{
+		label: 'draft-ietf-sshm-chacha20-poly1305-04',
+		url: 'https://datatracker.ietf.org/doc/html/draft-ietf-sshm-chacha20-poly1305-04',
+		note: 'OpenSSH key-half positions, length encryption, packet nonce/counters, MAC-before-payload rule, and the 92-byte Appendix A vector.',
+	},
+	{
+		label: 'RFC 8439 — ChaCha20 and Poly1305',
+		url: 'https://www.rfc-editor.org/rfc/rfc8439',
+		note: 'Published primitive vectors: §2.4.2 and Appendix A for ChaCha20; §2.5.2 and Appendix A.3 for Poly1305.',
+	},
+	{
+		label: 'RFC 4231 — HMAC-SHA-256 test vectors',
+		url: 'https://www.rfc-editor.org/rfc/rfc4231',
+		note: 'Published HMAC-SHA-256 vectors, including Test Case 7’s 131-byte key and 152-byte data.',
+	},
+	{
+		label: 'NIST SP 800-38A — block-cipher modes',
+		url: 'https://csrc.nist.gov/pubs/sp/800/38/a/final',
+		note: 'Appendix F.2.1 four-block AES-128-CBC known-answer vector.',
 	},
 	{
 		label: 'RFC 4255 — SSHFP DNS Records',

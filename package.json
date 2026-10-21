@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "test:a11y": "playwright test a11y"
+    "test:a11y": "playwright test a11y",
+    "test:mutations": "node scripts/mutation-test.mjs"
   },
   "devDependencies": {
     "@axe-core/playwright": "^4.13.0",
@@ -18,5 +19,8 @@
     "typescript": "~7.0.2",
     "vite": "^8.3.4",
     "vitest": "^5.0.4"
+  },
+  "dependencies": {
+    "@noble/ciphers": "^2.4.0"
   }
 }

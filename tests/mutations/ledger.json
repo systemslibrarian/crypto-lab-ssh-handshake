@@ -1,0 +1,50 @@
+[
+  {
+    "id": "apw-idealised-leak",
+    "source": "src/bpp/ui.ts",
+    "find": "export const APW_IDEALISED_ALARM = 'ALARM — PLAINTEXT LEAKED (32 bits)';",
+    "replace": "export const APW_IDEALISED_ALARM = 'MUTANT — IDEALISED LEAK HIDDEN';",
+    "grep": "mutation:apw-ideal",
+    "verdict": "idealised receiver leak"
+  },
+  {
+    "id": "apw-openssh-leak",
+    "source": "src/bpp/ui.ts",
+    "find": "export const APW_OPENSSH_ALARM_14 = 'ALARM — PLAINTEXT LEAKED (14 bits)';",
+    "replace": "export const APW_OPENSSH_ALARM_14 = 'MUTANT — OPENSSH LEAK HIDDEN';",
+    "grep": "mutation:apw-openssh",
+    "verdict": "pre-5.2 OpenSSH receiver leak"
+  },
+  {
+    "id": "apw-ctr-defence",
+    "source": "src/bpp/ui.ts",
+    "find": "export const CTR_DEFENCE = 'DEFENCE HELD — AES-CTR USED AN UNRELATED KEYSTREAM BLOCK';",
+    "replace": "export const CTR_DEFENCE = 'MUTANT — AES-CTR DEFENCE SUPPRESSED';",
+    "grep": "mutation:apw-ctr",
+    "verdict": "AES-CTR defence"
+  },
+  {
+    "id": "apw-chacha-defence",
+    "source": "src/bpp/ui.ts",
+    "find": "export const CHACHA_DEFENCE = 'DEFENCE HELD — POLY1305 REJECTED BEFORE PAYLOAD DECRYPTION';",
+    "replace": "export const CHACHA_DEFENCE = 'MUTANT — POLY1305 DEFENCE SUPPRESSED';",
+    "grep": "mutation:apw-chacha",
+    "verdict": "ChaCha20-Poly1305 defence"
+  },
+  {
+    "id": "terrapin-authenticated-deletion",
+    "source": "src/bpp/ui.ts",
+    "find": "export const TERRAPIN_ALARM = 'ALARM — PACKET DELETED, MAC VALID';",
+    "replace": "export const TERRAPIN_ALARM = 'MUTANT — DELETION HIDDEN';",
+    "grep": "mutation:terrapin",
+    "verdict": "Terrapin authenticated deletion"
+  },
+  {
+    "id": "strict-kex-defence",
+    "source": "src/bpp/ui.ts",
+    "find": "export const STRICT_DEFENCE = 'DEFENCE HELD — STRICT KEX REJECTED SSH_MSG_IGNORE';",
+    "replace": "export const STRICT_DEFENCE = 'MUTANT — STRICT KEX DEFENCE SUPPRESSED';",
+    "grep": "mutation:strict-kex",
+    "verdict": "strict-kex defence"
+  }
+]

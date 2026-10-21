@@ -213,8 +213,8 @@ function shell(): string {
 	const { sig } = algoNames();
 	return `
 		<details class="hash-lab" open>
-			<summary>Exchange-hash binding — why one signature covers everything</summary>
-			<p class="hlab-intro">The server signs a single hash <code>H</code>. These five fields feed into it. Swap any one — as a man-in-the-middle would — and watch <code>H</code> change and the real ${sig} signature stop verifying, in the same frame.</p>
+			<summary>Exchange-hash binding — why one signature covers these KEX fields</summary>
+			<p class="hlab-intro">The server signs a single hash <code>H</code>. These five fields feed into this core teaching model. Swap any one — as a man-in-the-middle would — and watch <code>H</code> change and the real ${sig} signature stop verifying, in the same frame. Section 4 shows the exact RFC-shaped field list and the transport messages H does not cover.</p>
 			<div class="hlab-flow">
 				<div class="hlab-tiles" role="group" aria-label="Exchange hash inputs"></div>
 				<div class="hlab-arrow" aria-hidden="true">▼ feeds into ▼</div>
@@ -227,6 +227,6 @@ function shell(): string {
 			<div class="hlab-actions">
 				<button type="button" class="tab-button hlab-reset">Restore the genuine handshake</button>
 			</div>
-			<p class="hlab-foot">Real SHA-256 over the canonical wire encoding, then a real Web Crypto signature verify — the identical check the client runs in step "Host signature" above. Nothing here is simulated.</p>
+			<p class="hlab-foot">Real SHA-256 over this engine’s canonical teaching encoding, then a real Web Crypto signature verify — the identical check the client runs in step "Host signature" above. Nothing here is simulated; its compressed field list is stated explicitly.</p>
 		</details>`;
 }
