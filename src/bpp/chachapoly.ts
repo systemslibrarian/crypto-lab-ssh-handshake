@@ -37,7 +37,7 @@ function splitKey(keyMaterial: Uint8Array): { payloadKey: Uint8Array; lengthKey:
 	return { payloadKey: keyMaterial.slice(0, 32), lengthKey: keyMaterial.slice(32, 64) };
 }
 
-function oneTimePolyKey(payloadKey: Uint8Array, nonce: Uint8Array): Uint8Array {
+function openSshChaCha20Poly1305OneTimeKey(payloadKey: Uint8Array, nonce: Uint8Array): Uint8Array {
 	return chacha20orig(payloadKey, nonce, new Uint8Array(32), undefined, 0);
 }
 
@@ -52,7 +52,7 @@ export function protectOpenSshChaCha(
 	const encryptedLength = chacha20orig(lengthKey, nonce, packet.slice(0, 4), undefined, 0);
 	const encryptedPayload = chacha20orig(payloadKey, nonce, packet.slice(4), undefined, 1);
 	const ciphertext = concatBytes(encryptedLength, encryptedPayload);
-	const tag = poly1305(ciphertext, oneTimePolyKey(payloadKey, nonce));
+	const tag = poly1305(ciphertext, openSshChaCha20Poly1305OneTimeKey(payloadKey, nonce));
 	return { sequence, ciphertext, tag, wire: concatBytes(ciphertext, tag) };
 }
 
@@ -66,7 +66,7 @@ export function openOpenSshChaCha(
 	const nonce = sequenceNonce(sequence);
 	const ciphertext = wire.slice(0, -16);
 	const suppliedTag = wire.slice(-16);
-	const expectedTag = poly1305(ciphertext, oneTimePolyKey(payloadKey, nonce));
+	const expectedTag = poly1305(ciphertext, openSshChaCha20Poly1305OneTimeKey(payloadKey, nonce));
 	// Per draft §7: authenticate the encrypted length and payload before the
 	// payload is decrypted. Only the separately keyed length is read first.
 	if (!equalBytes(suppliedTag, expectedTag)) {
