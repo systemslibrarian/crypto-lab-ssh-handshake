@@ -244,6 +244,6 @@ export function explainMode(mode: StrictMode): string {
 		case 'accept-new':
 			return 'StrictHostKeyChecking=accept-new — silently pin on first contact, reject on change.';
 		case 'no':
-			return 'StrictHostKeyChecking=no — trust whatever responds. Dangerous; pin can be silently overwritten.';
+			return 'StrictHostKeyChecking=no — auto-pin unknown hosts, and continue (restricted) when a pinned key changes. Dangerous; but the old pin is retained, not overwritten, and the warning is anything but silent.';
 	}
 }

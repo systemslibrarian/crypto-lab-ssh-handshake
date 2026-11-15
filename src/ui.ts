@@ -881,8 +881,8 @@ function renderPendingPrompt(pending: NonNullable<PolicyConnectResult['pendingFi
 			<p class="ssh-warning-title">${label}: The authenticity of host "${HOST_NAME}" can't be established.</p>
 			<p class="ssh-warning-body">
 				Host key fingerprint is <code>${fp}</code>.<br>
-				Are you sure you want to continue connecting (yes/no/[verify])?
-				This is what OpenSSH prints — TOFU at this moment is a leap of faith.
+				Are you sure you want to continue connecting (yes/no/[fingerprint])?
+				This is what OpenSSH prints — and pasting the fingerprint itself counts as yes. TOFU at this moment is a leap of faith.
 			</p>
 			${sshfpHint}
 			<div class="pending-actions">
@@ -982,7 +982,7 @@ function renderSshfpCard(state: AppState): string {
 				<dt>signed</dt><dd>${rec.dnssecSigned ? '<code>DNSSEC ✓ trustworthy channel</code>' : '<code class="warn">unsigned — DNS-spoofable</code>'}</dd>
 				<dt>dig output</dt><dd><pre class="kh-file" tabindex="0" role="region" aria-label="dig SSHFP output"><code>${rrLine}</code></pre></dd>
 			</dl>
-			<p class="kh-hint">SSHFP RDATA: <code>&lt;algorithm&gt; &lt;fp-type&gt; &lt;hex-fingerprint&gt;</code>. Algorithm 4 = Ed25519, 3 = ECDSA. fp-type 2 = SHA-256. (RFC 4255 + RFC 7479.)</p>
+			<p class="kh-hint">SSHFP RDATA: <code>&lt;algorithm&gt; &lt;fp-type&gt; &lt;hex-fingerprint&gt;</code> (RFC 4255, which registers only algorithms 1–2 and fp-type 1). Algorithm 3 = ECDSA and fp-type 2 = SHA-256 come from RFC 6594; algorithm 4 = Ed25519 from RFC 7479.</p>
 			<div class="pending-actions">
 				<button id="sshfp-remove" class="tab-button" type="button">Remove SSHFP record</button>
 			</div>
@@ -1325,7 +1325,7 @@ function decisionBanner(result: ConnectResult): string {
 		return `
 			<div class="ssh-warning ssh-warning--pending">
 				<p class="ssh-warning-title">The authenticity of host “${HOST_NAME}” can’t be established.</p>
-				<p class="ssh-warning-body">No fingerprint is on file for this host. Real ssh would print the fingerprint and ask <em>Are you sure you want to continue connecting (yes/no)?</em> — this demo says yes for you. From here on, this fingerprint is the trusted identity for <code>${HOST_NAME}</code>. <strong>If you skipped out-of-band verification on first contact, this could be a MITM.</strong></p>
+				<p class="ssh-warning-body">No fingerprint is on file for this host. Real ssh would print the fingerprint and ask <em>Are you sure you want to continue connecting (yes/no/[fingerprint])?</em> — this demo says yes for you. From here on, this fingerprint is the trusted identity for <code>${HOST_NAME}</code>. <strong>If you skipped out-of-band verification on first contact, this could be a MITM.</strong></p>
 			</div>
 		`;
 	}

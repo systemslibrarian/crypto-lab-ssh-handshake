@@ -231,7 +231,12 @@ export const CITATIONS: Citation[] = [
 	{
 		label: 'RFC 4255 — SSHFP DNS Records',
 		url: 'https://www.rfc-editor.org/rfc/rfc4255',
-		note: 'Publish the host key fingerprint in DNS (with DNSSEC) to bootstrap first-contact trust.',
+		note: 'Publish the host key fingerprint in DNS (with DNSSEC) to bootstrap first-contact trust. Registers algorithms 1 (RSA) and 2 (DSS) and fingerprint type 1 (SHA-1) — and nothing else.',
+	},
+	{
+		label: 'RFC 6594 — ECDSA and SHA-256 for SSHFP',
+		url: 'https://www.rfc-editor.org/rfc/rfc6594',
+		note: 'Registers SSHFP algorithm 3 (ECDSA) and fingerprint type 2 (SHA-256), which is the fp-type every record in this demo uses. Algorithm 4 (Ed25519) came later, in RFC 7479.',
 	},
 	{
 		label: 'RFC 5656 — ECC Algorithms for SSH',
