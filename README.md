@@ -131,3 +131,5 @@ No environment variables, no API keys, no servers. Everything runs client-side i
 ## OpenSSH deployment context
 
 A visible dated comparison links [OpenSSH release notes](https://www.openssh.org/releasenotes.html) and [PQ guidance](https://www.openssh.org/pq.html), separates PQ key exchange, host signatures and trust bootstrap, and keeps the lab’s classical JSON-model engine explicit.
+
+**Standards reviewed 15 November 2026:** OpenSSH has used a hybrid post-quantum key exchange by default since [OpenSSH 9.0](https://www.openssh.org/txt/release-9.0) (8 April 2022, `sntrup761x25519-sha512`); [9.9](https://www.openssh.org/txt/release-9.9) (19 September 2024) added `mlkem768x25519-sha256`, which [10.0](https://www.openssh.org/txt/release-10.0) (9 April 2025) made the default, and [10.1](https://www.openssh.org/txt/release-10.1) (6 October 2025) warns when a connection negotiates a non-post-quantum key exchange ([OpenSSH PQ guidance](https://www.openssh.org/pq.html)). This lab’s exhibits stay with classical X25519 (ECDH P-256 fallback); no hybrid key-exchange exhibit is included.

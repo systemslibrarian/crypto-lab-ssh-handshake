@@ -246,7 +246,7 @@ export const CITATIONS: Citation[] = [
 	{
 		label: 'RFC 8731 — Curve25519 and Curve448 key exchange in SSH',
 		url: 'https://www.rfc-editor.org/rfc/rfc8731',
-		note: 'Standards-track curve25519-sha256 / curve448-sha512 KEX — the preferred SSH KEX today.',
+		note: 'Standards-track curve25519-sha256 / curve448-sha512 KEX — the classical exchange this lab runs; OpenSSH has defaulted to a hybrid post-quantum KEX since 9.0.',
 	},
 	{
 		label: 'OpenSSH PROTOCOL.certkeys — host certificates',
