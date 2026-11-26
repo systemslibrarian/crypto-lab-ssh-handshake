@@ -32,7 +32,7 @@ The page walks through seven sections: starting a server; connecting with a real
 
 ## Real-World Usage
 
-- **OpenSSH `known_hosts`** — every SSH client pins host keys on first connection and warns on change, exactly the TOFU flow modeled here.
+- **OpenSSH `known_hosts`** — in the common TOFU path, an accepted first-seen host key is saved and later changes warn. Strict policies can refuse unknown keys, while DNSSEC-validated SSHFP records or a trusted OpenSSH host CA can authenticate a host without a per-host TOFU pin; the lab models each of those paths separately.
 - **Server and infrastructure administration** — interactive shells, configuration management, and automation authenticate hosts via these host keys.
 - **Git over SSH** — pushing and pulling from GitHub, GitLab, and self-hosted servers relies on SSH host-key verification.
 - **SSHFP + DNSSEC** — publishing host fingerprints in signed DNS lets clients bootstrap trust without a prior connection (RFC 4255).
